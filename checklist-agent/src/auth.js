@@ -6,10 +6,23 @@ const CLIENT_ID = '04b07795-8ddb-461a-bbee-02f9e1bf7b46';
 // Single-user local session. A hosted version should replace this with per-user sessions (e.g. Fabric SSO).
 const state = { credential: null, pending: null, user: null, tenantId: null, error: null };
 
-export function startLogin(tenantId) {
+// Accepts a tenant GUID, a domain, or an email/UPN (domain is taken from it) and resolves it to a tenant GUID.
+export async function resolveTenant(input) {
+  let v = String(input || '').trim();
+  if (!v) return undefined;
+  if (v.includes('@')) v = v.split('@').pop();
+  if (/^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(v)) return v;
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(v)}/v2.0/.well-known/openid-configuration`);
+  if (!res.ok) throw new Error(`Could not resolve tenant "${v}". Use a tenant ID or a domain like contoso.onmicrosoft.com.`);
+  const id = (await res.json()).issuer?.match(/microsoftonline\.com\/([^/]+)\//)?.[1];
+  if (!id) throw new Error(`Could not resolve tenant "${v}".`);
+  return id;
+}
+
+export async function startLogin(tenantInput) {
   state.error = null;
   state.user = null;
-  state.tenantId = tenantId || undefined;
+  state.tenantId = await resolveTenant(tenantInput);
   return new Promise((resolve, reject) => {
     const credential = new DeviceCodeCredential({
       clientId: CLIENT_ID,
