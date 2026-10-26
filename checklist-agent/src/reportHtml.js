@@ -8,7 +8,7 @@ export const md = (s) => marked.parse(String(s ?? '').replace(/</g, '&lt;'), { g
 
 export function renderItemHtml(item, r) {
   if (!r) return '<p><i>Not run yet. Use the ▶ button to run this item.</i></p>';
-  return `<p class="head"><b>${esc(r.headline)}</b></p>${r.evidence ? `<h4>Evidence</h4>${md(r.evidence)}` : ''}${r.recommendation ? `<h4>Recommendation</h4>${md(r.recommendation)}` : ''}`;
+  return `<p class="head"><b>${esc(r.headline)}</b></p>${r.recommendation ? `<h4>What to do</h4>${md(r.recommendation)}` : '<p>✅ Nothing to do.</p>'}${r.evidence ? `<details class="tech"><summary>Technical details</summary>${md(r.evidence)}</details>` : ''}`;
 }
 
 export function renderReportHtml({ sections, results, info, summary }) {
@@ -20,7 +20,7 @@ export function renderReportHtml({ sections, results, info, summary }) {
     if (!r) return `<div class="item pending"><b>⏳ ${esc(i.text)}</b><div class="head">Not run yet</div></div>`;
     return `<details class="item ${r.status}" id="${i.id}" ${r.status === 'fail' ? 'open' : ''}>
 <summary><span class="st">${ICON[r.status]}</span> <b>${i.critical ? '⚠ ' : ''}${esc(i.text)}</b><div class="head">${esc(r.headline)}</div></summary>
-${r.evidence ? `<h4>Evidence</h4>${md(r.evidence)}` : ''}${r.recommendation ? `<h4>Recommendation</h4>${md(r.recommendation)}` : ''}</details>`;
+${r.recommendation ? `<h4>What to do</h4>${md(r.recommendation)}` : '<p>✅ Nothing to do.</p>'}${r.evidence ? `<details class="tech"><summary>Technical details</summary>${md(r.evidence)}</details>` : ''}</details>`;
   }).join('') + '</section>').join('');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Readiness report - ${esc(info.displayName)}</title>
@@ -36,6 +36,8 @@ nav a{color:#0f6cbd;text-decoration:none}main{flex:1;min-width:0}
 summary{cursor:pointer}.head{color:#555;margin-top:.2rem}h2{margin-top:2rem}h4{margin:1rem 0 .2rem;color:#0f2b46}
 pre{background:#f3f3f3;padding:.8rem;overflow:auto;border-radius:6px}code{background:#f3f3f3;padding:0 .25rem;border-radius:4px}
 table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem}
+.tech{margin-top:.8rem;color:#555;font-size:.9em}.tech summary{cursor:pointer;color:#0f6cbd}
+ul{padding-left:1.3rem}li{margin:.25rem 0}
 @media print{nav{display:none}details{display:block}}
 </style></head><body>
 <header><h1>Semantic model readiness report</h1><div>${esc(info.displayName)}</div></header>

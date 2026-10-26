@@ -23,7 +23,7 @@ Rules:
   pass = verified OK; warn = partially OK / improvement advised; fail = clearly not met;
   manual = only for pure process/UI items that no tool can verify (Data Agent UI, M365 publishing, team processes) or when your tools genuinely failed (state the error);
   not_applicable = does not apply to this model (e.g. Direct Lake items on an Import model).
-- headline: one plain-text line (max 140 chars) stating the finding. evidence: detailed markdown findings with concrete object names, counts, measured numbers (use bullets). recommendation: detailed, actionable markdown fix with exact object names and, where useful, corrected DAX/TMDL in fenced code blocks (empty if pass).
+- Write for END USERS (business owners, not engineers). headline: one plain-text line (max 120 chars) stating the finding in plain language. recommendation: 2-5 short bullet points, each starting with "- " and one concrete action in plain language (max ~25 words, name the exact table/column/measure, no jargon, no code unless the fix is a DAX formula, then at most one short fenced snippet last); empty if pass. evidence: brief technical details for experts (counts, numbers, object names), kept short; it is shown collapsed.
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
 
@@ -95,9 +95,9 @@ export function buildTools({ model, results, emit }) {
         properties: {
           item_id: { type: 'string' },
           status: { type: 'string', enum: STATUSES },
-          headline: { type: 'string', description: 'One-line finding, max 140 chars, no markdown' },
-          evidence: { type: 'string', description: 'Detailed findings in markdown (bullets, object names, numbers)' },
-          recommendation: { type: 'string', description: 'Detailed fix in markdown, may include DAX/TMDL code blocks' },
+          headline: { type: 'string', description: 'One-line finding in plain language, max 120 chars, no markdown' },
+          evidence: { type: 'string', description: 'Brief technical details for experts (counts, numbers, object names), shown collapsed' },
+          recommendation: { type: 'string', description: '2-5 plain-language bullet points ("- action"), concrete, naming exact objects; empty if pass' },
         },
         required: ['item_id', 'status', 'headline', 'evidence'],
         additionalProperties: false,
@@ -230,7 +230,7 @@ async function summarize({ client, sections, results, info, copilotModel }) {
   try {
     const res = await session.sendAndWait(
       {
-        prompt: `Model: ${info.displayName}. Findings (id | section | [critical] | status | item | evidence | recommendation):\n${rows.join('\n')}\n\nWrite a DETAILED markdown report using only ### headings (never # or ##): 1) "### Executive summary" (5-6 sentences: readiness for Fabric Data Agent, biggest risks, what was measured), 2) "### Key findings" (grouped by theme: schema, naming/descriptions, measures, performance/memory, Prep for AI; each finding cites the evidence with numbers and object names), 3) "### Prioritized recommendations" (ordered; critical failures first; for each: what to change, exact objects, how to do it, expected benefit, effort S/M/L; include corrected DAX/TMDL snippets where useful), 4) "### Quick wins", 5) "### Remaining manual steps" (only items not verifiable by tools, with how-to). Do not repeat the full item table.`,
+        prompt: `Model: ${info.displayName}. Findings (id | section | [critical] | status | item | evidence | recommendation):\n${rows.join('\n')}\n\nWrite a SHORT, plain-language report for business end users (no jargon), using only ### headings (never # or ##): 1) "### Verdict" (2-3 sentences: is the model ready for a Fabric Data Agent, and why), 2) "### Top 5 actions" (a numbered list, most important first; each one line: what to do and where, e.g. "Turn off auto date/time in Options > Data Load"), 3) "### Quick wins" (max 4 bullets, under 30 minutes each), 4) "### Needs a person" (max 4 bullets: things to verify in the Power BI / Data Agent UI). Keep every bullet under 25 words. Do not repeat the item table.`,
       },
       5 * 60 * 1000,
     );
@@ -246,21 +246,14 @@ export function renderReport({ sections, results, info, summary }) {
   const out = [`# Semantic model readiness report: ${info.displayName}`, ''];
   out.push(`Pass ${count('pass')} · Warn ${count('warn')} · Fail ${count('fail')} · Manual ${count('manual')} · N/A ${count('not_applicable')}`, '');
   if (summary) out.push(summary, '');
-  out.push('## Detailed findings', '');
+  out.push('## Findings and what to do', '');
   for (const s of sections) {
-    out.push(`### ${s.title}`, '', '| | Item | Finding |', '|---|---|---|');
-    const cell = (t) => String(t || '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
-    for (const i of s.items) {
-      const r = results[i.id];
-      out.push(`| ${r ? icon[r.status] : '⏳'} | ${i.critical ? '**' : ''}${cell(i.text)}${i.critical ? '**' : ''} | ${cell(r?.headline)} |`);
-    }
-    out.push('');
+    out.push(`### ${s.title}`, '');
     for (const i of s.items) {
       const r = results[i.id];
       if (!r) continue;
-      out.push(`#### ${icon[r.status]} ${i.id} - ${i.text}`, '', `**Finding:** ${r.headline || ''}`, '');
-      if (r.evidence) out.push('**Evidence**', '', r.evidence, '');
-      if (r.recommendation) out.push('**Recommendation**', '', r.recommendation, '');
+      out.push(`#### ${icon[r.status]} ${i.text}`, '', r.headline || '', '');
+      if (r.recommendation) out.push('**What to do**', '', r.recommendation, '');
     }
   }
   return out.join('\n');
