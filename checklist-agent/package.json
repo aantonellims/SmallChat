@@ -1,0 +1,16 @@
+{
+  "name": "checklist-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Semantic model readiness checklist agent powered by the GitHub Copilot SDK",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.26",
+    "express": "^5.3.0"
+  }
+}

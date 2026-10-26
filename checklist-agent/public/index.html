@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Semantic Model Checklist Agent</title>
+<style>
+  body { font: 15px/1.5 Segoe UI, system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; }
+  h1 { margin-bottom: .2rem } .sub { color: #666; margin-top: 0 }
+  form { display: flex; gap: .5rem; margin: 1.2rem 0 }
+  input { flex: 1; padding: .6rem; border: 1px solid #bbb; border-radius: 6px; font-size: 1rem }
+  button { padding: .6rem 1.2rem; border: 0; border-radius: 6px; background: #0f6cbd; color: #fff; font-size: 1rem; cursor: pointer }
+  button:disabled { background: #999 }
+  #status { color: #444; min-height: 1.5rem }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem }
+  th, td { border: 1px solid #ddd; padding: .4rem .6rem; vertical-align: top; text-align: left }
+  th { background: #f3f3f3 } td.s { width: 2rem; text-align: center }
+  tr.crit td:nth-child(2) { font-weight: 600 } .pending td { color: #999 }
+  pre { background: #f7f7f7; padding: 1rem; overflow: auto; white-space: pre-wrap }
+  .err { color: #b00020 }
+</style>
+</head>
+<body>
+<h1>Semantic Model Checklist Agent</h1>
+<p class="sub">Paste a Power BI / Fabric semantic model URL. A GitHub Copilot agent runs the Data Agent readiness checklist and writes recommendations.</p>
+<form id="f">
+  <input id="url" placeholder="https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
+  <button id="go">Run checklist</button>
+</form>
+<div id="status"></div>
+<div id="summary"></div>
+<div id="out"></div>
+<p><button id="dl" hidden>Download report (.md)</button></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_applicable: '➖', pending: '⏳' };
+let sections = [], runId = null;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function init() {
+  sections = await (await fetch('/api/checklist')).json();
+  render({});
+}
+function render(results) {
+  $('out').innerHTML = sections.map((s) => `<h3>${esc(s.title)}</h3><table><tr><th></th><th>Item</th><th>Evidence</th><th>Recommendation</th></tr>` +
+    s.items.map((i) => {
+      const r = results[i.id];
+      return `<tr class="${i.critical ? 'crit' : ''} ${r ? '' : 'pending'}"><td class="s">${icon[r ? r.status : 'pending']}</td><td>${esc(i.text)}</td><td>${esc(r?.evidence)}</td><td>${esc(r?.recommendation)}</td></tr>`;
+    }).join('') + '</table>').join('');
+}
+$('f').onsubmit = async (e) => {
+  e.preventDefault();
+  $('go').disabled = true; $('dl').hidden = true; $('summary').innerHTML = ''; $('status').className = '';
+  const results = {}; render(results);
+  const res = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: $('url').value }) });
+  const body = await res.json();
+  if (!res.ok) { $('status').className = 'err'; $('status').textContent = body.error; $('go').disabled = false; return; }
+  runId = body.id;
+  const es = new EventSource(`/api/runs/${runId}/events`);
+  es.onmessage = async (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'status') $('status').textContent = ev.message;
+    if (ev.type === 'model') $('status').textContent = `Model: ${ev.name}`;
+    if (ev.type === 'section') $('status').textContent = `Assessing: ${ev.title}`;
+    if (ev.type === 'tool') $('status').textContent += ` · ${ev.name}`;
+    if (ev.type === 'item') { results[ev.itemId] = ev; render(results); }
+    if (ev.type === 'error') { $('status').className = 'err'; $('status').textContent = ev.message; es.close(); $('go').disabled = false; }
+    if (ev.type === 'done') {
+      es.close(); $('go').disabled = false; $('status').textContent = 'Done.';
+      const md = await (await fetch(`/api/runs/${runId}/report`)).text();
+      const top = md.split('\n## ')[0];
+      $('summary').innerHTML = '<pre>' + esc(top) + '</pre>';
+      $('dl').hidden = false;
+      $('dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'semantic-model-report.md'; a.click(); };
+    }
+  };
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED) $('go').disabled = false; };
+};
+init();
+</script>
+</body>
+</html>
