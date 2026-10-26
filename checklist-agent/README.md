@@ -5,6 +5,11 @@ Paste a Power BI / Fabric semantic model URL; a GitHub Copilot agent (via `@gith
 (`checklist.md`, from microsoft/fabric-toolbox) section by section and produces a recommendation report.
 
 ## How it works
+- `checklist.md` is the upstream Microsoft checklist; `checklist-extra.md` adds a **DAX Best Practices and Performance** section
+  (13 items, shown right after "Semantic Model Optimization"). The agent executes it: it collects all measure expressions through the MCP,
+  runs anti-pattern analysis (FILTER over tables, "/" vs DIVIDE, IFERROR, missing VAR, nested iterators, reference style, SELECTEDVALUE,
+  time intelligence, calculated columns, relationships), verifies measure correctness by running the key measures, and times them cold/warm.
+  Sources: Microsoft Learn DAX best practices, Power BI optimization guidance and the awesome-copilot `powerbi-modeling` skill (`skills/powerbi-modeling`, MIT, see `NOTICE.md`).
 - `src/fabric.js` - parses the URL, downloads the model definition (TMDL) via Fabric REST `getDefinition`.
 - `src/agent.js` - one Copilot session per checklist section. The agent is given: (1) the hosted **Power BI authoring MCP**
   (`https://api.fabric.microsoft.com/v1/mcp/powerbi/authoring`, authenticated with the signed-in user) to connect to the model and

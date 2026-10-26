@@ -66,7 +66,11 @@ test('data agent sections are scoped out unless a Data Agent URL is given', asyn
   const { parseDataAgentUrl } = await import('../src/fabric.js');
   const s = loadChecklist();
   assert.deepEqual(s.filter((x) => x.scope === 'dataagent').map((x) => x.title), ['Data Agent Configuration', 'Testing and Validation']);
-  assert.equal(s.filter((x) => x.scope === 'model').length, 4);
+  assert.equal(s.filter((x) => x.scope === 'model').length, 5);
+  const dax = s[1];
+  assert.equal(dax.title, 'DAX Best Practices and Performance');
+  assert.equal(dax.items.length, 13);
+  assert.ok(dax.items.some((i) => i.critical));
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '33333333-3333-3333-3333-333333333333';
   assert.deepEqual(parseDataAgentUrl(`https://app.fabric.microsoft.com/groups/${ws}/aiskills/${id}?experience=fabric-developer`), { workspaceId: ws, itemId: id, url: `https://app.fabric.microsoft.com/groups/${ws}/aiskills/${id}?experience=fabric-developer` });

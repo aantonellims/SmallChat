@@ -59,6 +59,21 @@ export const ITEM_GUIDANCE = {
   i54: G('Git/Deployment Pipelines are lifecycle items outside the model. Answer manual.', true),
   i55: G('Read the Data Agent definition (read_data_agent_definition / item description) and check a description exists; if unreadable, answer manual.'),
   i56: G('M365 Copilot publishing instructions are outside the model. Answer manual.', true),
+
+  // ---- DAX Best Practices and Performance (checklist-extra.md). Follow references/dax-best-practices.md of the semantic-model-review skill and the powerbi-modeling skill (MEASURES-DAX.md, PERFORMANCE.md). ----
+  i57: G('RUN it (Step 1+3 of the DAX procedure): execute the ~8 key measures via the powerbi-modeling MCP (total, and by Date[Year] or another key dimension). Flag errors, BLANK-for-every-row, constant values, impossible values and inverted/wrong logic (growth %, YTD, cumulative). Give the corrected DAX. headline = "N of M key measures return wrong or empty results".'),
+  i58: G('RUN it (Step 4): time the key measures cold (after ClearCache) and warm, total and sliced by a key dimension plus a high-cardinality dimension. Flag >1 s warn, >5 s fail, with the cause and rewritten DAX. Evidence = table Measure | Cold ms | Warm ms | Cause. If the model is tiny say so but still report the numbers.'),
+  i59: G('Collect all measure expressions (INFO.VIEW.MEASURES) and detect FILTER over entire tables / FILTER(ALL(table)) inside CALCULATE. List each measure with a rewritten expression (column predicate, REMOVEFILTERS, KEEPFILTERS, or FILTER(ALL(Date[Date]),...) for running totals).'),
+  i60: G('Find complex measures (>2 repeated sub-expressions or long CALCULATE chains) that do not use VAR. List them with a VAR/RETURN rewrite of the worst 3-5.'),
+  i61: G('Find divisions using "/" instead of DIVIDE where the denominator can be zero/BLANK. List measures and show the DIVIDE rewrite.'),
+  i62: G('Find IFERROR / ISERROR usage in measures and calculated columns; recommend DIVIDE / COALESCE / explicit IF. If none, pass.'),
+  i63: G('Find nested iterators and expensive iterators (SUMX/AVERAGEX/RANKX/ADDCOLUMNS over large tables, e.g. RANKX(ALL(Users))). Use the measured timings from i58 to prioritize; propose simplification or pre-aggregation.'),
+  i64: G('Check reference style across all expressions: columns must be Table[Col]; measures must be [Measure] without a table prefix. List offenders by measure (counts) and the corrected form.'),
+  i65: G('Find IF(HASONEVALUE(...), VALUES(...)) patterns and replace with SELECTEDVALUE(...). If none, pass.'),
+  i66: G('Verify time intelligence: Date table marked (dataCategory Time / isKey), continuous with no gaps (check MIN/MAX/COUNTROWS via DAX), built-in time-intelligence functions used, and no NOW()/TODAY()/hard-coded dates in calculated columns or measures. Report the stale/frozen columns and the fix.'),
+  i67: G('List calculated columns (INFO.VIEW.COLUMNS) that could be Power Query/source columns or measures, calculated columns used in relationships, and calculated columns that depend on measures (frozen at refresh). Recommend what to move and where.'),
+  i68: G('From INFO.VIEW.RELATIONSHIPS list bidirectional, many-to-many and inactive relationships and the measures that need USERELATIONSHIP. Recommend simplification; flag only those that really affect DAX complexity/performance.'),
+  i69: G('Find measures that return 0 or "" instead of BLANK for no data, and hard-coded magic numbers/literals/dates inside expressions. Give the fix (BLANK(), parameter table, Date column).'),
 };
 
 export function guidanceFor(id) {

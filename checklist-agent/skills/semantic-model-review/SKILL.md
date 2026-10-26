@@ -25,6 +25,8 @@ Files: `definition/model.tmdl`, `definition/relationships.tmdl`, `definition/tab
 
 Rules: cite concrete object names and counts; quote little; never invent.
 
+For the "DAX Best Practices and Performance" section read `references/dax-best-practices.md` in this skill (procedure: collect expressions, static anti-pattern analysis, correctness runs, cold/warm timing) and use the `powerbi-modeling` skill (MEASURES-DAX.md, PERFORMANCE.md) as the rule source.
+
 ## Connecting and DAX via MCP
 1. `connection_operations` -> operation `ConnectFabric` with the workspace id + model id given in the prompt (operation `Help` shows the shape).
 2. `dax_query_operations` Execute runs real DAX including `INFO.*` (INFO.TABLES(), INFO.COLUMNS(), INFO.MEASURES(), INFO.RELATIONSHIPS(), INFO.PARTITIONS(), INFO.CALCDEPENDENCY(), INFO.STORAGETABLECOLUMNS(), INFO.STORAGETABLECOLUMNSEGMENTS(), INFO.STORAGETABLES()...) - use `dax_query_operations` help for the exact request shape. If an INFO function is unavailable, try the equivalent `$SYSTEM.DISCOVER_*` / `$SYSTEM.TMSCHEMA_*` DMV query.

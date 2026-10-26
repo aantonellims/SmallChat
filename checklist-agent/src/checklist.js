@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const DEFAULT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'checklist.md');
+const EXTRA_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'checklist-extra.md');
 
 // Parses the upstream markdown checklist into sections of items.
 export function parseChecklist(markdown) {
@@ -37,6 +38,12 @@ export function parseChecklist(markdown) {
   return sections.filter((s) => s.items.length > 0);
 }
 
-export function loadChecklist(file = DEFAULT_FILE) {
-  return parseChecklist(readFileSync(file, 'utf8'));
+// Upstream checklist plus this tool's extra sections. The DAX section is shown right after "Semantic Model Optimization".
+export function loadChecklist(file = DEFAULT_FILE, extra = EXTRA_FILE) {
+  let text = readFileSync(file, 'utf8');
+  if (extra && existsSync(extra)) text += `\n${readFileSync(extra, 'utf8')}`;
+  const sections = parseChecklist(text);
+  const i = sections.findIndex((s) => /^DAX Best Practices/i.test(s.title));
+  if (i > 1) sections.splice(1, 0, ...sections.splice(i, 1));
+  return sections;
 }
