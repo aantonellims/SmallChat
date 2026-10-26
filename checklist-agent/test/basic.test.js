@@ -16,7 +16,7 @@ test('checklist parses sections, items and critical flags', () => {
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';
-  for (const p of ['datasets', 'semanticmodels']) {
+  for (const p of ['datasets', 'semanticmodels', 'modeling']) {
     const r = parseModelUrl(`https://app.powerbi.com/groups/${ws}/${p}/${id}/details?experience=power-bi`);
     assert.deepEqual(r, { workspaceId: ws, modelId: id });
   }

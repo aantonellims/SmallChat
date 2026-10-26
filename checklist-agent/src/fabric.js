@@ -15,9 +15,9 @@ export function parseModelUrl(url) {
   if (!/(^|\.)(powerbi\.com|fabric\.microsoft\.com)$/i.test(u.hostname)) {
     throw new Error('URL must be a Power BI or Fabric portal URL.');
   }
-  const m = new RegExp(`/groups/(${GUID})/(?:datasets|semanticmodels)/(${GUID})`, 'i').exec(u.pathname);
+  const m = new RegExp(`/groups/(${GUID})/(?:datasets|semanticmodels|modeling|models)/(${GUID})`, 'i').exec(u.pathname);
   if (!m) {
-    throw new Error('Could not find /groups/<workspaceId>/(datasets|semanticmodels)/<modelId> in the URL.');
+    throw new Error('Could not find /groups/<workspaceId>/(datasets|semanticmodels|modeling)/<modelId> in the URL.');
   }
   return { workspaceId: m[1], modelId: m[2] };
 }
@@ -66,7 +66,10 @@ export class SemanticModelClient {
     if (this.info) return this.info;
     const token = await this.getToken('https://api.fabric.microsoft.com');
     const res = await http(`${FABRIC_API}/workspaces/${this.workspaceId}/semanticModels/${this.modelId}`, token);
-    if (!res.ok) throw new Error(`Fabric get semantic model failed (${res.status}): ${await res.text()}`);
+    if (!res.ok) {
+      const hint = res.status === 404 || res.status === 403 ? ' The signed-in az account cannot see this workspace/model: check you are logged into the right tenant (az login --tenant <id>) and have access.' : '';
+      throw new Error(`Fabric get semantic model failed (${res.status}).${hint}`);
+    }
     this.info = await res.json();
     return this.info;
   }
