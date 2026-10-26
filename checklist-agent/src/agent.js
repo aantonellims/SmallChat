@@ -23,7 +23,10 @@ Rules:
   pass = verified OK; warn = partially OK / improvement advised; fail = clearly not met;
   manual = only for pure process/UI items that no tool can verify (Data Agent UI, M365 publishing, team processes) or when your tools genuinely failed (state the error);
   not_applicable = does not apply to this model (e.g. Direct Lake items on an Import model).
-- Write for END USERS (business owners, not engineers). headline: one plain-text line (max 120 chars) stating the finding in plain language. recommendation: 2-5 short bullet points, each starting with "- " and one concrete action in plain language (max ~25 words, name the exact table/column/measure, no jargon, no code unless the fix is a DAX formula, then at most one short fenced snippet last); empty if pass. evidence: brief technical details for experts (counts, numbers, object names), kept short; it is shown collapsed.
+- Write for END USERS (business owners, not engineers) and format everything as clean markdown.
+  headline: one plain-text line (max 120 chars) stating the finding in plain language.
+  recommendation: a numbered or bulleted list of 2-6 actions, MOST IMPORTANT FIRST. Each line = a verb + exact object + where/how to do it + short reason, in this shape: "- **Turn off auto date/time** (File > Options > Data load): removes 18 hidden date tables and ~3 MB." Name the tool/menu when the fix is done in Power BI Desktop or the service. No unexplained jargon (if you must use a term like "cardinality" or "DAX", explain it in 3-5 words). Never write a paragraph. At most one short fenced code snippet, last, only when the fix is a formula. Empty if pass.
+  evidence (shown collapsed as "Technical details"): structured markdown only: short bullets, one fact per bullet, bold labels (e.g. "**Rule:** ..."), and a markdown table when listing more than 4 objects (columns like Object | Issue | Size). No long paragraphs, no raw dumps. Max ~25 lines.
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
 
@@ -96,8 +99,8 @@ export function buildTools({ model, results, emit }) {
           item_id: { type: 'string' },
           status: { type: 'string', enum: STATUSES },
           headline: { type: 'string', description: 'One-line finding in plain language, max 120 chars, no markdown' },
-          evidence: { type: 'string', description: 'Brief technical details for experts (counts, numbers, object names), shown collapsed' },
-          recommendation: { type: 'string', description: '2-5 plain-language bullet points ("- action"), concrete, naming exact objects; empty if pass' },
+          evidence: { type: 'string', description: 'Technical details as structured markdown: short bullets with bold labels, and a table when listing more than 4 objects. No paragraphs.' },
+          recommendation: { type: 'string', description: 'Prioritized list of 2-6 actions, each "- **Verb + object** (where/how): short reason". Plain language, no paragraphs; empty if pass' },
         },
         required: ['item_id', 'status', 'headline', 'evidence'],
         additionalProperties: false,
@@ -167,13 +170,18 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
   const client = new CopilotClient();
   await client.start?.();
   try {
-    for (const section of targets) {
+    const fresh = new Set();
+    const track = (e) => {
+      if (e.type === 'item') fresh.add(e.itemId);
+      emit(e);
+    };
+    const runSection = async (section, lastError) => {
       if (signal?.aborted) throw new Error('Run cancelled.');
       emit({ type: 'section', id: section.id, title: section.title, items: section.items.length });
       const token = await model.getToken('https://api.fabric.microsoft.com');
       const session = await client.createSession({
         ...(copilotModel ? { model: copilotModel } : {}),
-        tools: buildTools({ model, results, emit }),
+        tools: buildTools({ model, results, emit: track }),
         skillDirectories: [SKILLS_DIR],
         mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },
         availableTools: TOOL_NAMES,
@@ -189,17 +197,33 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       try {
         await session.sendAndWait({ prompt: sectionPrompt(section, info, ctx) }, 25 * 60 * 1000);
       } catch (e) {
+        lastError.message = e.message;
         emit({ type: 'status', message: `Section "${section.title}" failed: ${e.message}` });
       } finally {
         off();
         await session.disconnect();
       }
-      for (const item of section.items) {
-        if (!results.has(item.id)) {
-          const r = { itemId: item.id, status: 'manual', headline: 'No verdict returned by the agent.', evidence: 'The agent did not return a verdict for this item.', recommendation: 'Re-run this item or review it manually.' };
-          results.set(item.id, r);
-          emit({ type: 'item', ...r });
-        }
+    };
+    for (const section of targets) {
+      const err = { message: '' };
+      await runSection(section, err);
+      // One automatic retry for items that got no verdict in this run (e.g. transient session failure).
+      let missing = section.items.filter((i) => !fresh.has(i.id));
+      if (missing.length) {
+        emit({ type: 'status', message: `Retrying ${missing.length} item(s) without a verdict...` });
+        await runSection({ ...section, items: missing }, err);
+        missing = section.items.filter((i) => !fresh.has(i.id));
+      }
+      for (const item of missing) {
+        const r = {
+          itemId: item.id,
+          status: 'manual',
+          headline: 'The agent could not complete this check.',
+          evidence: `- **Error:** ${err.message || 'no verdict returned after a retry'}`,
+          recommendation: '- **Re-run this item** with the ↻ button; if it keeps failing, review it manually.',
+        };
+        results.set(item.id, r);
+        emit({ type: 'item', ...r });
       }
     }
     const complete = sections.every((s) => s.items.every((i) => results.has(i.id)));

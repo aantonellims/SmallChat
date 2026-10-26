@@ -4,7 +4,7 @@ const ICON = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_ap
 const LABEL = { pass: 'Pass', warn: 'Warning', fail: 'Fail', manual: 'Manual', not_applicable: 'N/A' };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Model output is untrusted: render markdown, then strip raw HTML.
-export const md = (s) => marked.parse(String(s ?? '').replace(/</g, '&lt;'), { gfm: true });
+export const md = (s) => marked.parse(String(s ?? '').replace(/</g, '&lt;'), { gfm: true, breaks: true });
 
 export function renderItemHtml(item, r) {
   if (!r) return '<p><i>Not run yet. Use the ▶ button to run this item.</i></p>';
