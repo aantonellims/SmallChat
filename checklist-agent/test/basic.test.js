@@ -39,6 +39,29 @@ test('html report renders markdown and neutralizes raw HTML', async () => {
   assert.ok(html.includes('<strong>a</strong>') && html.includes('<pre>') && html.includes('<h3>Sum</h3>'));
 });
 
+test('ModelCopy edits a copy, rejects ambiguous edits and produces a diff/patch/zip', async () => {
+  const { ModelCopy, fileDiff, toPatch, toZip, renderDiffHtml } = await import('../src/fixes.js');
+  const files = new Map([
+    ['definition/tables/A.tmdl', 'table A\n\tcolumn X\n\t\tsummarizeBy: sum\n\tcolumn Y\n\t\tsummarizeBy: sum\n'],
+    ['definition/tables/B.tmdl', 'table B\n'],
+    ['definition/database.tmdl', 'database\n'],
+  ]);
+  const copy = new ModelCopy(files);
+  assert.throws(() => copy.replace('definition/tables/A.tmdl', 'summarizeBy: sum', 'summarizeBy: none'), /matches 2 times/);
+  assert.throws(() => copy.replace('definition/tables/A.tmdl', 'nope', 'x'), /not found/);
+  copy.replace('definition/tables/A.tmdl', '\tcolumn X\n\t\tsummarizeBy: sum', '\tcolumn X\n\t\tsummarizeBy: none');
+  copy.remove('definition/tables/B.tmdl');
+  assert.throws(() => copy.remove('definition/database.tmdl'));
+  assert.equal(files.get('definition/tables/A.tmdl').includes('none'), false);
+  const changes = copy.changes();
+  assert.equal(changes.length, 2);
+  const d = fileDiff(changes[0]);
+  assert.deepEqual([d.added, d.removed], [1, 1]);
+  assert.ok(toPatch(changes).includes('+\t\tsummarizeBy: none'));
+  assert.ok(renderDiffHtml(changes).includes('class="add"') && renderDiffHtml(changes).includes('file deleted'));
+  assert.ok(toZip(copy.files).length > 20);
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

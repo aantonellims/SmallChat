@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { loadChecklist } from './checklist.js';
 import { parseModelUrl, SemanticModelClient } from './fabric.js';
-import { runChecklist, renderReport } from './agent.js';
+import { runChecklist, runFix, renderReport } from './agent.js';
+import { fileDiff, renderDiffHtml, toPatch, toZip, DIFF_CSS } from './fixes.js';
 import { renderReportHtml, renderItemHtml } from './reportHtml.js';
 import { startLogin, authStatus as realAuthStatus, logout, interactiveTokenProvider } from './auth.js';
 import { azCliTokenProvider } from './fabric.js';
@@ -41,6 +42,7 @@ app.get('/api/checklist', requireLogin, (_req, res) => res.json(sections));
 
 // Starts (or re-starts) a run of the given items on an existing run object; results accumulate in run.results.
 function execute(run, itemIds) {
+  for (const id of itemIds ?? allIds) run.fixes.delete(id);
   run.state = 'running';
   run.error = null;
   run.events = [];
@@ -87,6 +89,7 @@ app.post('/api/runs', requireLogin, (req, res) => {
     events: [],
     listeners: new Set(),
     results: new Map(),
+    fixes: new Map(),
     summary: '',
     info: null,
     error: null,
@@ -143,6 +146,44 @@ app.get('/api/runs/:id/items/:itemId/html', (req, res) => {
   const item = sections.flatMap((s) => s.items).find((i) => i.id === req.params.itemId);
   if (!run || !item) return res.sendStatus(404);
   res.type('html').send(renderItemHtml(item, run.results.get(item.id)));
+});
+
+app.get('/diff.css', (_req, res) => res.type('text/css').send(DIFF_CSS));
+
+// ---- Fix preview (no writes to the real model): the agent edits an in-memory copy; the user reviews a diff. ----
+app.post('/api/runs/:id/items/:itemId/fix', requireLogin, (req, res) => {
+  const run = runs.get(req.params.id);
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === req.params.itemId);
+  const result = run?.results.get(req.params.itemId);
+  if (!run || !item || !result) return res.sendStatus(404);
+  if (!result.fixable) return res.status(400).json({ error: 'This recommendation cannot be applied as a model definition change.' });
+  const existing = run.fixes.get(item.id);
+  if (existing?.state === 'running') return res.status(202).json({ state: 'running' });
+  const fix = { state: 'running', changes: [], files: null, summary: '', warnings: [], noFix: '', error: null };
+  run.fixes.set(item.id, fix);
+  runFix({ model: run.model, item, result, info: run.info ?? { displayName: 'Semantic model' } })
+    .then((r) => Object.assign(fix, r, { state: 'done' }))
+    .catch((e) => Object.assign(fix, { state: 'error', error: e.message }));
+  res.status(202).json({ state: 'running' });
+});
+
+app.get('/api/runs/:id/items/:itemId/fix', (req, res) => {
+  const fix = runs.get(req.params.id)?.fixes.get(req.params.itemId);
+  if (!fix) return res.sendStatus(404);
+  const stats = fix.changes.map(fileDiff).reduce((a, d) => ({ files: a.files + 1, added: a.added + d.added, removed: a.removed + d.removed }), { files: 0, added: 0, removed: 0 });
+  res.json({ state: fix.state, error: fix.error, summary: fix.summary, warnings: fix.warnings, noFix: fix.noFix, stats, html: fix.state === 'done' ? renderDiffHtml(fix.changes) : '' });
+});
+
+app.get('/api/runs/:id/items/:itemId/fix.patch', (req, res) => {
+  const fix = runs.get(req.params.id)?.fixes.get(req.params.itemId);
+  if (!fix || fix.state !== 'done' || !fix.changes.length) return res.sendStatus(404);
+  res.set('Content-Disposition', `attachment; filename="${req.params.itemId}-fix.patch"`).type('text/plain').send(toPatch(fix.changes));
+});
+
+app.get('/api/runs/:id/items/:itemId/fix.zip', (req, res) => {
+  const fix = runs.get(req.params.id)?.fixes.get(req.params.itemId);
+  if (!fix || fix.state !== 'done' || !fix.files) return res.sendStatus(404);
+  res.set('Content-Disposition', `attachment; filename="${req.params.itemId}-patched-definition.zip"`).type('application/zip').send(toZip(fix.files));
 });
 
 app.get('/runs/:id/report', (req, res) => {

@@ -30,6 +30,19 @@
   .tech { margin-top: 1rem; color: #555; font-size: .9em } .tech summary { cursor: pointer; color: #0f6cbd }
   pre { background: #f3f3f3; padding: .7rem; overflow: auto; border-radius: 6px } code { background: #f3f3f3; padding: 0 .2rem; border-radius: 4px }
 </style>
+<link rel="stylesheet" href="/diff.css" />
+<style>
+  #fixview { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 20 }
+  #fixview.open { display: block }
+  #fixbox { position: absolute; inset: 3vh 4vw; background: #fff; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden }
+  #fixhead { padding: .9rem 1.3rem; border-bottom: 1px solid #e1e1e1; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap }
+  #fixhead h3 { margin: 0; flex: 1 }
+  #fixbody { padding: 1rem 1.3rem; overflow: auto; flex: 1 }
+  .notice { background: #fff8e1; border: 1px solid #f0d58a; border-radius: 6px; padding: .5rem .8rem; margin: .5rem 0 }
+  .warnbox { background: #fff1f0; border: 1px solid #f3b5b0; border-radius: 6px; padding: .5rem .8rem; margin: .5rem 0 }
+  .btnlink { display: inline-block; padding: .4rem .9rem; border-radius: 6px; background: #0f6cbd; color: #fff; text-decoration: none; font-size: .9rem }
+  .btnlink.sec { background: #fff; color: #0f6cbd; border: 1px solid #0f6cbd }
+</style>
 </head>
 <body>
 <header><h1>Semantic Model Checklist Agent</h1></header>
@@ -60,7 +73,11 @@
   <div id="out"></div>
 </div>
 </main>
-<aside id="drawer"><button id="close" class="sec mini" style="float:right">Close</button><h3 id="dtitle"></h3><div id="dbody"></div></aside>
+<aside id="drawer"><button id="close" class="sec mini" style="float:right">Close</button><h3 id="dtitle"></h3><div id="dbody"></div><div id="dfix"></div></aside>
+<div id="fixview"><div id="fixbox">
+  <div id="fixhead"><h3 id="fixtitle">Proposed fix</h3><span id="fixlinks"></span><button id="fixclose" class="sec">Close</button></div>
+  <div id="fixbody"></div>
+</div></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_applicable: '➖', pending: '⏳' };
@@ -119,7 +136,33 @@ async function openDrawer(id) {
   const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
   $('dtitle').textContent = `${icon[results[id]?.status ?? 'pending']} ${item.text}`;
   $('dbody').innerHTML = runId ? await (await fetch(`/api/runs/${runId}/items/${id}/html`)).text() : '<i>Load a model first.</i>';
+  $('dfix').innerHTML = results[id]?.fixable ? `<p><button id="fixbtn" data-fix="${id}">🔧 Preview fix</button> <span class="sub">shows the exact change to the model files; nothing is modified</span></p>` : '';
   $('drawer').classList.add('open');
+}
+$('dfix').onclick = (e) => { if (e.target.dataset.fix) previewFix(e.target.dataset.fix); };
+$('fixclose').onclick = () => $('fixview').classList.remove('open');
+
+async function previewFix(id) {
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
+  $('fixtitle').textContent = `Proposed fix: ${item.text}`;
+  $('fixlinks').innerHTML = '';
+  $('fixbody').innerHTML = '<p>⏳ The agent is preparing the change on a copy of the model definition (usually 1-3 minutes)...</p>';
+  $('fixview').classList.add('open');
+  const r = await fetch(`/api/runs/${runId}/items/${id}/fix`, { method: 'POST' });
+  if (!r.ok) { $('fixbody').innerHTML = `<p class="err">${esc((await r.json()).error || 'Could not start.')}</p>`; return; }
+  const poll = async () => {
+    const f = await (await fetch(`/api/runs/${runId}/items/${id}/fix`)).json();
+    if (f.state === 'running') return setTimeout(poll, 2500);
+    if (f.state === 'error') { $('fixbody').innerHTML = `<p class="err">${esc(f.error)}</p>`; return; }
+    if (f.noFix) { $('fixbody').innerHTML = `<div class="notice"><b>No automatic change available.</b> ${esc(f.noFix)}<br>Follow the "What to do" steps manually.</div>`; return; }
+    $('fixlinks').innerHTML = `<a class="btnlink" href="/api/runs/${runId}/items/${id}/fix.patch">⬇ Download .patch</a> <a class="btnlink sec" href="/api/runs/${runId}/items/${id}/fix.zip">⬇ Patched files (.zip)</a>`;
+    $('fixbody').innerHTML = `<p><b>${esc(f.summary)}</b></p>
+<p class="sub">${f.stats.files} file(s) changed · <span style="color:#1a7f37">+${f.stats.added}</span> <span style="color:#cf222e">-${f.stats.removed}</span></p>
+<div class="notice">Preview only. Nothing has been changed in your semantic model. Review the colored lines (green = added, red = removed), then apply the change yourself (e.g. paste into the model's TMDL view or deploy the patched files).</div>
+${f.warnings.length ? `<div class="warnbox"><b>Check before applying</b><ul>${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+${f.html}`;
+  };
+  poll();
 }
 $('close').onclick = () => $('drawer').classList.remove('open');
 

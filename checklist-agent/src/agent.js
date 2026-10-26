@@ -2,6 +2,7 @@ import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { guidanceFor } from './prompts.js';
+import { ModelCopy } from './fixes.js';
 
 const SKILLS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills');
 
@@ -26,6 +27,7 @@ Rules:
 - Write for END USERS (business owners, not engineers) and format everything as clean markdown.
   headline: one plain-text line (max 120 chars) stating the finding in plain language.
   recommendation: a numbered or bulleted list of 2-6 actions, MOST IMPORTANT FIRST. Each line = a verb + exact object + where/how to do it + short reason, in this shape: "- **Turn off auto date/time** (File > Options > Data load): removes 18 hidden date tables and ~3 MB." Name the tool/menu when the fix is done in Power BI Desktop or the service. No unexplained jargon (if you must use a term like "cardinality" or "DAX", explain it in 3-5 words). Never write a paragraph. At most one short fenced code snippet, last, only when the fix is a formula. Empty if pass.
+  fixable: set true only when the recommendation can be implemented by editing the model definition (TMDL); false for UI/process/source/Power Query/service-setting actions.
   evidence (shown collapsed as "Technical details"): structured markdown only: short bullets, one fact per bullet, bold labels (e.g. "**Rule:** ..."), and a markdown table when listing more than 4 objects (columns like Object | Issue | Size). No long paragraphs, no raw dumps. Max ~25 lines.
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
@@ -99,16 +101,17 @@ export function buildTools({ model, results, emit }) {
           item_id: { type: 'string' },
           status: { type: 'string', enum: STATUSES },
           headline: { type: 'string', description: 'One-line finding in plain language, max 120 chars, no markdown' },
+          fixable: { type: 'boolean', description: 'true ONLY if the recommendation can be implemented by editing the model definition (TMDL: descriptions, hidden, summarizeBy, formatString, data type, DAX expression, rename, removing tables/columns). false for process/UI/Power Query/source/service-setting actions.' },
           evidence: { type: 'string', description: 'Technical details as structured markdown: short bullets with bold labels, and a table when listing more than 4 objects. No paragraphs.' },
           recommendation: { type: 'string', description: 'Prioritized list of 2-6 actions, each "- **Verb + object** (where/how): short reason". Plain language, no paragraphs; empty if pass' },
         },
-        required: ['item_id', 'status', 'headline', 'evidence'],
+        required: ['item_id', 'status', 'headline', 'fixable', 'evidence'],
         additionalProperties: false,
       },
       skipPermission: true,
-      handler: async ({ item_id, status, headline, evidence, recommendation = '' }) => {
+      handler: async ({ item_id, status, headline, fixable = false, evidence, recommendation = '' }) => {
         if (!STATUSES.includes(status)) return `Invalid status. Use one of: ${STATUSES.join(', ')}`;
-        const r = { itemId: item_id, status, headline: String(headline).slice(0, 180), evidence: evidence.slice(0, 4000), recommendation: recommendation.slice(0, 3000) };
+        const r = { itemId: item_id, status, headline: String(headline).slice(0, 180), fixable: !!fixable && ['warn', 'fail'].includes(status) && !!recommendation, evidence: evidence.slice(0, 4000), recommendation: recommendation.slice(0, 3000) };
         results.set(item_id, r);
         emit({ type: 'item', ...r });
         return 'recorded';
@@ -262,6 +265,136 @@ async function summarize({ client, sections, results, info, copilotModel }) {
   } finally {
     await session.disconnect();
   }
+}
+
+const FIX_SYSTEM = `You prepare a PROPOSED fix for one finding of a Power BI / Fabric semantic model review. You never change the real model: you only edit an in-memory copy of its TMDL definition, and the user will review a diff before anything is applied.
+Tools: list_model_files, read_model_file, search_model (they read the working copy, including your edits), replace_in_model_file (exact, unique string replacement), delete_model_file, finish_fix, no_fix. You may also use the powerbi-modeling MCP (tool_search_tool to load; READ-ONLY operations only) to check facts with INFO.* queries.
+Rules:
+- Read the relevant TMDL first, then make the MINIMAL edits that implement the recommendation. Respect TMDL syntax: tab indentation, "///" description lines directly above table/column/measure, properties such as isHidden, summarizeBy: none, formatString:, dataType:, displayFolder:, and measure expressions.
+- Deleting a table: delete its file AND remove every reference to it (relationships.tmdl entries, "ref table" lines in model.tmdl, annotations referencing it) so the definition stays valid.
+- Renames: also update every DAX reference found with search_model.
+- If the fix touches many objects (>30), do the most important ones and say so in warnings.
+- If the recommendation cannot be expressed as a TMDL edit (UI/process/source/Power Query), call no_fix with a one-sentence reason and stop.
+- Always end by calling finish_fix with: summary (one plain-language sentence, e.g. "Adds descriptions to 8 tables and hides 3 helper columns") and warnings (0-4 short plain-language impact notes such as "Renaming Total commits may break existing reports that use the old name"). No questions to the user.`;
+
+export async function runFix({ model, item, result, info, copilotModel = process.env.COPILOT_MODEL }) {
+  const files = await model.loadDefinition();
+  const copy = new ModelCopy(files);
+  const state = { summary: '', warnings: [], noFix: '' };
+  const tools = [
+    defineTool('list_model_files', {
+      description: 'List files of the working copy of the model definition with sizes.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      skipPermission: true,
+      handler: async () => [...copy.files].map(([p, c]) => `${p}\t${c.length}`).join('\n'),
+    }),
+    defineTool('read_model_file', {
+      description: 'Read a file of the working copy by exact path. Large files are paged with offset.',
+      parameters: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['path'], additionalProperties: false },
+      skipPermission: true,
+      handler: async ({ path, offset = 0 }) => (copy.files.has(path) ? clip(copy.files.get(path).slice(offset)) : `File not found: ${path}`),
+    }),
+    defineTool('search_model', {
+      description: 'Case-insensitive regex search over the working copy. Returns path:line: text (max 80 hits).',
+      parameters: { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'], additionalProperties: false },
+      skipPermission: true,
+      handler: async ({ pattern }) => {
+        let re;
+        try {
+          re = new RegExp(pattern, 'i');
+        } catch (e) {
+          return `Invalid regex: ${e.message}`;
+        }
+        const hits = [];
+        for (const [p, c] of copy.files) c.split(/\r?\n/).forEach((l, i) => hits.length < 80 && re.test(l) && hits.push(`${p}:${i + 1}: ${l.trim().slice(0, 200)}`));
+        return hits.length ? hits.join('\n') : 'No matches.';
+      },
+    }),
+    defineTool('replace_in_model_file', {
+      description: 'Replace an exact string in a file of the working copy. old_str must match exactly once (unless replace_all).',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, old_str: { type: 'string' }, new_str: { type: 'string' }, replace_all: { type: 'boolean' } },
+        required: ['path', 'old_str', 'new_str'],
+        additionalProperties: false,
+      },
+      skipPermission: true,
+      handler: async ({ path, old_str, new_str, replace_all = false }) => {
+        try {
+          return `replaced ${copy.replace(path, old_str, new_str, replace_all)} occurrence(s)`;
+        } catch (e) {
+          return `Error: ${e.message}`;
+        }
+      },
+    }),
+    defineTool('delete_model_file', {
+      description: 'Delete a file (for example a whole table definition) from the working copy.',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false },
+      skipPermission: true,
+      handler: async ({ path }) => {
+        try {
+          copy.remove(path);
+          return 'deleted';
+        } catch (e) {
+          return `Error: ${e.message}`;
+        }
+      },
+    }),
+    defineTool('finish_fix', {
+      description: 'Call once when all edits are done.',
+      parameters: {
+        type: 'object',
+        properties: { summary: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } } },
+        required: ['summary'],
+        additionalProperties: false,
+      },
+      skipPermission: true,
+      handler: async ({ summary, warnings = [] }) => {
+        state.summary = String(summary).slice(0, 300);
+        state.warnings = warnings.slice(0, 4).map((w) => String(w).slice(0, 200));
+        return 'ok';
+      },
+    }),
+    defineTool('no_fix', {
+      description: 'Call when the recommendation cannot be implemented as a model definition edit.',
+      parameters: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'], additionalProperties: false },
+      skipPermission: true,
+      handler: async ({ reason }) => {
+        state.noFix = String(reason).slice(0, 300);
+        return 'ok';
+      },
+    }),
+  ];
+
+  const client = new CopilotClient();
+  await client.start?.();
+  try {
+    const token = await model.getToken('https://api.fabric.microsoft.com');
+    const session = await client.createSession({
+      ...(copilotModel ? { model: copilotModel } : {}),
+      tools,
+      skillDirectories: [SKILLS_DIR],
+      mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },
+      availableTools: [...tools.map((t) => t.name), 'mcp:*', 'skill', 'tool_search_tool'],
+      systemMessage: { mode: 'append', content: FIX_SYSTEM },
+      onPermissionRequest: permissionHandler,
+    });
+    try {
+      await session.sendAndWait(
+        {
+          prompt: `Model "${info.displayName}". Checklist item: ${item.text}\nFinding: ${result.headline}\nRecommended actions:\n${result.recommendation}\n\nTechnical details:\n${result.evidence}\n\nPrepare the proposed TMDL fix now.`,
+        },
+        15 * 60 * 1000,
+      );
+    } finally {
+      await session.disconnect();
+    }
+  } finally {
+    await client.stop?.();
+  }
+  const changes = copy.changes();
+  if (!changes.length && !state.noFix) state.noFix = 'The agent did not produce any change for this recommendation.';
+  return { changes, files: copy.files, summary: state.summary, warnings: state.warnings, noFix: state.noFix };
 }
 
 export function renderReport({ sections, results, info, summary }) {
