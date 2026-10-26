@@ -58,10 +58,12 @@
 <div id="app" hidden>
   <p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a></p>
   <form id="f">
-    <input id="url" placeholder="https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
+    <input id="url" placeholder="Semantic model URL: https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
     <button id="load" type="button" class="sec">Load model</button>
     <button id="go">Run full checklist</button>
   </form>
+  <p class="sub" style="margin:-.4rem 0 .8rem">Optional: if a Data Agent already exists for this model, paste its URL to also check <i>Data Agent configuration</i> and <i>Testing and validation</i>.</p>
+  <input id="daurl" placeholder="Data Agent URL (optional): https://app.fabric.microsoft.com/groups/&lt;workspaceId&gt;/aiskills/&lt;id&gt;" style="width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #bbb;border-radius:6px;font-size:1rem;margin-bottom:.6rem" />
   <div id="toolbar" hidden>
     <button id="runall">▶ Run all</button>
     <button id="runsel" class="sec">▶ Run selected</button>
@@ -84,6 +86,8 @@ const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_ap
 let sections = [], runId = null, results = {}, busy = false, current = null;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const json = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+// Data Agent sections are only shown when a Data Agent URL is provided.
+const visibleSections = () => sections.filter((s) => s.scope !== 'dataagent' || $('daurl').value.trim());
 
 async function init() {
   const me = await (await fetch('/api/me')).json();
@@ -112,7 +116,7 @@ $('lo').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', 
 
 function render() {
   $('chips').innerHTML = ['pass', 'warn', 'fail', 'manual', 'not_applicable'].map((s) => `<span class="chip">${icon[s]} ${Object.values(results).filter((r) => r.status === s).length}</span>`).join('');
-  $('out').innerHTML = sections.map((s) => `<h3>${esc(s.title)} <button class="mini sec" data-run-section="${s.id}" ${runId && !busy ? '' : 'disabled'}>▶ Run section</button></h3>
+  $('out').innerHTML = visibleSections().map((s) => `<h3>${esc(s.title)} <button class="mini sec" data-run-section="${s.id}" ${runId && !busy ? '' : 'disabled'}>▶ Run section</button></h3>
 <table><tr><th class="c"><input type="checkbox" data-sec="${s.id}"></th><th></th><th>Item</th><th>Finding</th><th></th></tr>` +
     s.items.map((i) => {
       const r = results[i.id];
@@ -189,16 +193,18 @@ function setBusy(b) { busy = b; $('runall').disabled = $('runsel').disabled = $(
 
 async function ensureRun() {
   if (runId) return true;
-  const r = await json('/api/runs', { url: $('url').value, prepare: true });
+  const r = await json('/api/runs', { url: $('url').value, dataAgentUrl: $('daurl').value.trim(), prepare: true });
   const b = await r.json();
   if (!r.ok) { $('status').className = 'err'; $('status').textContent = b.error; return false; }
   runId = b.id; results = {}; links(); render();
   return true;
 }
-$('url').oninput = () => { runId = null; results = {}; links(); render(); };
+const reset = () => { runId = null; results = {}; links(); render(); };
+$('url').oninput = reset;
+$('daurl').oninput = reset;
 $('load').onclick = async () => { $('status').className = ''; if (await ensureRun()) $('status').textContent = 'Model loaded. Run all items, a section, or a single item with ▶.'; };
-$('f').onsubmit = async (e) => { e.preventDefault(); if (await ensureRun()) start(sections.flatMap((s) => s.items.map((i) => i.id))); };
-$('runall').onclick = () => start(sections.flatMap((s) => s.items.map((i) => i.id)));
+$('f').onsubmit = async (e) => { e.preventDefault(); if (await ensureRun()) start(visibleSections().flatMap((s) => s.items.map((i) => i.id))); };
+$('runall').onclick = () => start(visibleSections().flatMap((s) => s.items.map((i) => i.id)));
 $('runsel').onclick = () => {
   const ids = [...document.querySelectorAll('.sel:checked')].map((c) => c.dataset.id);
   if (!ids.length) { $('status').textContent = 'Select at least one item.'; return; }

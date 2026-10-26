@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { loadChecklist } from './checklist.js';
-import { parseModelUrl, SemanticModelClient } from './fabric.js';
+import { parseModelUrl, parseDataAgentUrl, fetchItemDefinition, SemanticModelClient } from './fabric.js';
 import { runChecklist, runFix, renderReport } from './agent.js';
 import { fileDiff, renderDiffHtml, toPatch, toZip, DIFF_CSS } from './fixes.js';
 import { renderReportHtml, renderItemHtml } from './reportHtml.js';
@@ -21,6 +21,7 @@ app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), '
 
 const sections = loadChecklist();
 const allIds = sections.flatMap((s) => s.items.map((i) => i.id));
+const runIds = (run) => run.sections.flatMap((s) => s.items.map((i) => i.id));
 const runs = new Map();
 
 app.post('/api/login', async (req, res) => {
@@ -51,7 +52,7 @@ function execute(run, itemIds) {
     run.events.push(evt);
     for (const l of run.listeners) l(evt);
   };
-  runChecklist({ sections, model: run.model, emit, signal: run.controller.signal, itemIds, existing: run.results })
+  runChecklist({ sections: run.sections, model: run.model, emit, signal: run.controller.signal, itemIds, existing: run.results, dataAgent: run.dataAgent })
     .then((r) => {
       run.info = r.info;
       if (r.summary) run.summary = r.summary;
@@ -74,11 +75,17 @@ const snapshot = (run) => ({
   results: Object.fromEntries(run.results),
 });
 
-// body: { url, prepare?: true, itemIds?: string[] }. prepare=true only creates the run so items can be run one by one.
+// body: { url, dataAgentUrl?, prepare?: true, itemIds?: string[] }. prepare=true only creates the run so items can be run one by one.
+// Data Agent sections are only part of the run when the customer provides the URL of an existing Data Agent.
 app.post('/api/runs', requireLogin, (req, res) => {
   let ids;
+  let dataAgent = null;
   try {
     ids = parseModelUrl(req.body?.url);
+    if (String(req.body?.dataAgentUrl || '').trim()) {
+      const d = parseDataAgentUrl(req.body.dataAgentUrl);
+      dataAgent = { ...d, load: () => fetchItemDefinition({ workspaceId: d.workspaceId, itemId: d.itemId, getToken: tokenProvider }) };
+    }
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -90,6 +97,8 @@ app.post('/api/runs', requireLogin, (req, res) => {
     listeners: new Set(),
     results: new Map(),
     fixes: new Map(),
+    sections: sections.filter((s) => s.scope === 'model' || dataAgent),
+    dataAgent,
     summary: '',
     info: null,
     error: null,
@@ -97,7 +106,7 @@ app.post('/api/runs', requireLogin, (req, res) => {
     model: new SemanticModelClient({ ...ids, getToken: tokenProvider }),
   };
   runs.set(id, run);
-  if (!req.body?.prepare) execute(run, Array.isArray(req.body?.itemIds) ? req.body.itemIds.filter((x) => allIds.includes(x)) : undefined);
+  if (!req.body?.prepare) execute(run, Array.isArray(req.body?.itemIds) ? req.body.itemIds.filter((x) => runIds(run).includes(x)) : undefined);
   res.status(202).json({ id });
 });
 
@@ -106,7 +115,7 @@ app.post('/api/runs/:id/items', requireLogin, (req, res) => {
   const run = runs.get(req.params.id);
   if (!run) return res.sendStatus(404);
   if (run.state === 'running') return res.status(409).json({ error: 'A run is already in progress.' });
-  const itemIds = (req.body?.itemIds ?? []).filter((x) => allIds.includes(x));
+  const itemIds = (req.body?.itemIds ?? []).filter((x) => runIds(run).includes(x));
   if (!itemIds.length) return res.status(400).json({ error: 'No valid itemIds.' });
   execute(run, itemIds);
   res.status(202).json({ id: run.id });
@@ -133,7 +142,7 @@ app.get('/api/runs/:id/events', (req, res) => {
   req.on('close', () => run.listeners.delete(l));
 });
 
-const reportInput = (run) => ({ sections, results: Object.fromEntries(run.results), info: run.info ?? { displayName: 'Semantic model' }, summary: run.summary });
+const reportInput = (run) => ({ sections: run.sections, results: Object.fromEntries(run.results), info: run.info ?? { displayName: 'Semantic model' }, summary: run.summary });
 
 app.get('/api/runs/:id/report', (req, res) => {
   const run = runs.get(req.params.id);

@@ -32,9 +32,29 @@ Rules:
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
 
-export function buildTools({ model, results, emit }) {
+export function buildTools({ model, results, emit, dataAgent }) {
   const files = async () => model.loadDefinition();
+  let agentFiles = null;
+  const agentTools = dataAgent
+    ? [
+        defineTool('read_data_agent_definition', {
+          description: 'Read the definition files of the customer\'s existing Fabric Data Agent (instructions, data source selection, example queries). Without a path it lists files with sizes; with a path it returns that file.',
+          parameters: { type: 'object', properties: { path: { type: 'string' } }, additionalProperties: false },
+          skipPermission: true,
+          handler: async ({ path } = {}) => {
+            try {
+              agentFiles ??= await dataAgent.load();
+            } catch (e) {
+              return `Could not read the Data Agent definition: ${e.message}`;
+            }
+            if (!path) return [...agentFiles].map(([p, c]) => `${p}\t${c.length}`).join('\n');
+            return agentFiles.has(path) ? clip(agentFiles.get(path)) : `File not found: ${path}`;
+          },
+        }),
+      ]
+    : [];
   return [
+    ...agentTools,
     defineTool('list_model_files', {
       description: 'List all files of the semantic model definition (TMDL) with their size in characters.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
@@ -120,7 +140,7 @@ export function buildTools({ model, results, emit }) {
   ];
 }
 
-const TOOL_NAMES = ['list_model_files', 'read_model_file', 'search_model', 'record_item_result', 'mcp:*', 'skill', 'tool_search_tool'];
+const TOOL_NAMES = ['list_model_files', 'read_model_file', 'search_model', 'record_item_result', 'read_data_agent_definition', 'mcp:*', 'skill', 'tool_search_tool'];
 const MCP_SERVER = 'powerbi-modeling';
 const MCP_URL = process.env.PBI_MCP_URL || 'https://api.fabric.microsoft.com/v1/mcp/powerbi/authoring';
 const READ_ONLY_OPS = /^(help|get\w*|list\w*|execute\w*|validate\w*|exporttmdl|connectfabric|connect|disconnect|clearcache|checkstatus)$/i;
@@ -153,18 +173,19 @@ function sectionPrompt(section, info, ctx) {
 Semantic model: "${info.displayName}" (modelId ${info.id}) in Fabric workspace "${ctx.workspaceName}" (workspaceId ${ctx.workspaceId}).
 Your FIRST action must be tool_search_tool with pattern "powerbi-modeling" to load the MCP tools, then powerbi-modeling-connection_operations ConnectFabric (workspaceId ${ctx.workspaceId}, modelId ${info.id}). Do not assess any item before the connection succeeds; if it fails, retry once and report the error in evidence.
 Checklist section: "${section.title}"
+${section.scope === 'dataagent' ? `This section is about the customer's EXISTING Fabric Data Agent: ${ctx.dataAgentUrl || 'URL not available'}. Use read_data_agent_definition to read its configuration (selected tables, instructions, example queries) and compare it with the semantic model; if it cannot be read, say so in the evidence and use manual for items that need it.\n` : ''}
 ${section.notes.length ? `Context: ${section.notes.join(' ')}\n` : ''}Assess every item below and call record_item_result once per item id.
 ${lines.join('\n')}
 When all items are recorded, reply with the single word DONE.`;
 }
 
-export async function runChecklist({ sections, model, emit, copilotModel = process.env.COPILOT_MODEL, signal, itemIds, existing }) {
+export async function runChecklist({ sections, model, emit, copilotModel = process.env.COPILOT_MODEL, signal, itemIds, existing, dataAgent }) {
   const info = await model.getInfo();
   emit({ type: 'model', name: info.displayName, id: info.id });
   emit({ type: 'status', message: 'Downloading semantic model definition (TMDL)...' });
   const files = await model.loadDefinition();
   emit({ type: 'status', message: `Definition loaded: ${files.size} files.` });
-  const ctx = { workspaceId: model.workspaceId, workspaceName: (await model.getWorkspaceName?.()) ?? model.workspaceId };
+  const ctx = { workspaceId: model.workspaceId, workspaceName: (await model.getWorkspaceName?.()) ?? model.workspaceId, dataAgentUrl: dataAgent?.url };
 
   const results = existing ?? new Map();
   const targets = (itemIds
@@ -184,7 +205,7 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       const token = await model.getToken('https://api.fabric.microsoft.com');
       const session = await client.createSession({
         ...(copilotModel ? { model: copilotModel } : {}),
-        tools: buildTools({ model, results, emit: track }),
+        tools: buildTools({ model, results, emit: track, dataAgent }),
         skillDirectories: [SKILLS_DIR],
         mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },
         availableTools: TOOL_NAMES,

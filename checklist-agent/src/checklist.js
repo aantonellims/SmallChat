@@ -12,7 +12,9 @@ export function parseChecklist(markdown) {
   for (const line of markdown.split(/\r?\n/)) {
     const h = /^##\s+(.+?)\s*$/.exec(line);
     if (h) {
-      current = { id: `s${sections.length + 1}`, title: h[1], notes: [], items: [] };
+      // Data Agent sections only make sense when a Data Agent already exists.
+      const scope = /Data Agent Configuration|Testing and Validation/i.test(h[1]) ? 'dataagent' : 'model';
+      current = { id: `s${sections.length + 1}`, title: h[1], scope, notes: [], items: [] };
       sections.push(current);
       continue;
     }

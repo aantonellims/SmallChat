@@ -59,6 +59,48 @@ async function http(url, token, init = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Extracts workspace and item ids from a Fabric Data Agent URL (e.g. .../groups/<ws>/aiskills/<id> or /dataagents/<id>).
+export function parseDataAgentUrl(url) {
+  let u;
+  try {
+    u = new URL(String(url).trim());
+  } catch {
+    throw new Error('Invalid Data Agent URL.');
+  }
+  if (!/(^|\.)(fabric\.microsoft\.com|powerbi\.com)$/i.test(u.hostname)) throw new Error('Data Agent URL must be a Fabric portal URL.');
+  const m = new RegExp(`/groups/(${GUID})/[^/]+/(${GUID})`, 'i').exec(u.pathname);
+  if (!m) throw new Error('Could not find /groups/<workspaceId>/<type>/<dataAgentId> in the Data Agent URL.');
+  return { workspaceId: m[1], itemId: m[2], url: u.toString() };
+}
+
+// Downloads any Fabric item definition (long-running operation) and returns decoded text parts.
+export async function fetchItemDefinition({ workspaceId, itemId, getToken }) {
+  const token = await getToken('https://api.fabric.microsoft.com');
+  let res = await http(`${FABRIC_API}/workspaces/${workspaceId}/items/${itemId}/getDefinition`, token, { method: 'POST' });
+  if (res.status === 202) {
+    const location = res.headers.get('location');
+    for (let i = 0; i < 60; i++) {
+      await sleep(Math.max(1, Number(res.headers.get('retry-after') || 2)) * 1000);
+      res = await http(location, token);
+      if (res.status === 200) {
+        const state = await res.clone().json().catch(() => ({}));
+        if (state.definition) break;
+        if (state.status === 'Succeeded') {
+          res = await http(`${location}/result`, token);
+          break;
+        }
+        if (state.status === 'Failed') throw new Error(`getDefinition failed: ${JSON.stringify(state.error)}`);
+      }
+      if (res.status >= 400) throw new Error(`getDefinition poll failed (${res.status})`);
+    }
+  }
+  if (!res.ok) throw new Error(`Data Agent definition not readable (${res.status}). The signed-in user needs Read+Write on the Data Agent.`);
+  const body = await res.json();
+  const parts = (body.definition?.parts ?? []).filter((p) => p.payloadType === 'InlineBase64');
+  if (!parts.length) throw new Error('The Data Agent definition is empty.');
+  return new Map(parts.map((p) => [p.path, Buffer.from(p.payload, 'base64').toString('utf8')]));
+}
+
 export class SemanticModelClient {
   constructor({ workspaceId, modelId, getToken = azCliTokenProvider() }) {
     this.workspaceId = workspaceId;

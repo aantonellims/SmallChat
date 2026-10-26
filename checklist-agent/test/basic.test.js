@@ -62,6 +62,18 @@ test('ModelCopy edits a copy, rejects ambiguous edits and produces a diff/patch/
   assert.ok(toZip(copy.files).length > 20);
 });
 
+test('data agent sections are scoped out unless a Data Agent URL is given', async () => {
+  const { parseDataAgentUrl } = await import('../src/fabric.js');
+  const s = loadChecklist();
+  assert.deepEqual(s.filter((x) => x.scope === 'dataagent').map((x) => x.title), ['Data Agent Configuration', 'Testing and Validation']);
+  assert.equal(s.filter((x) => x.scope === 'model').length, 4);
+  const ws = '11111111-1111-1111-1111-111111111111';
+  const id = '33333333-3333-3333-3333-333333333333';
+  assert.deepEqual(parseDataAgentUrl(`https://app.fabric.microsoft.com/groups/${ws}/aiskills/${id}?experience=fabric-developer`), { workspaceId: ws, itemId: id, url: `https://app.fabric.microsoft.com/groups/${ws}/aiskills/${id}?experience=fabric-developer` });
+  assert.throws(() => parseDataAgentUrl('https://example.com/x'));
+  assert.throws(() => parseDataAgentUrl('https://app.fabric.microsoft.com/home'));
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';
