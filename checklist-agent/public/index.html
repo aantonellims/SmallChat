@@ -146,14 +146,29 @@ async function previewFix(id) {
   const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
   $('fixtitle').textContent = `Proposed fix: ${item.text}`;
   $('fixlinks').innerHTML = '';
-  $('fixbody').innerHTML = '<p>⏳ The agent is preparing the change on a copy of the model definition (usually 1-3 minutes)...</p>';
+  const fail = (msg) => { $('fixbody').innerHTML = `<p class="err">${esc(msg)}</p>`; };
+  const gone = 'This run no longer exists on the server (it was probably restarted). Reload the page, load the model and re-run this item, then try again.';
+  $('fixbody').innerHTML = '<p>⏳ The agent is preparing the change on a copy of the model definition (usually 1-3 minutes)...</p><p class="sub" id="fixelapsed"></p>';
   $('fixview').classList.add('open');
-  const r = await fetch(`/api/runs/${runId}/items/${id}/fix`, { method: 'POST' });
-  if (!r.ok) { $('fixbody').innerHTML = `<p class="err">${esc((await r.json()).error || 'Could not start.')}</p>`; return; }
+  let r;
+  try { r = await fetch(`/api/runs/${runId}/items/${id}/fix`, { method: 'POST' }); } catch { return fail('Could not reach the server.'); }
+  if (r.status === 404) return fail(gone);
+  if (!r.ok) { let m = 'Could not start the fix.'; try { m = (await r.json()).error || m; } catch {} return fail(m); }
+  const t0 = Date.now();
   const poll = async () => {
-    const f = await (await fetch(`/api/runs/${runId}/items/${id}/fix`)).json();
-    if (f.state === 'running') return setTimeout(poll, 2500);
-    if (f.state === 'error') { $('fixbody').innerHTML = `<p class="err">${esc(f.error)}</p>`; return; }
+    if (!$('fixview').classList.contains('open')) return;
+    let f;
+    try {
+      const res = await fetch(`/api/runs/${runId}/items/${id}/fix`);
+      if (res.status === 404) return fail(gone);
+      f = await res.json();
+    } catch { return fail('Lost connection to the server.'); }
+    if (f.state === 'running') {
+      $('fixelapsed').textContent = `Working for ${Math.round((Date.now() - t0) / 1000)} s...`;
+      if (Date.now() - t0 > 10 * 60 * 1000) return fail('Timed out after 10 minutes. Close and try again.');
+      return setTimeout(poll, 2500);
+    }
+    if (f.state === 'error') return fail(f.error);
     if (f.noFix) { $('fixbody').innerHTML = `<div class="notice"><b>No automatic change available.</b> ${esc(f.noFix)}<br>Follow the "What to do" steps manually.</div>`; return; }
     $('fixlinks').innerHTML = `<a class="btnlink" href="/api/runs/${runId}/items/${id}/fix.patch">⬇ Download .patch</a> <a class="btnlink sec" href="/api/runs/${runId}/items/${id}/fix.zip">⬇ Patched files (.zip)</a>`;
     $('fixbody').innerHTML = `<p><b>${esc(f.summary)}</b></p>
@@ -194,7 +209,8 @@ async function start(itemIds) {
   if (busy || !(await ensureRun())) return;
   $('status').className = ''; setBusy(true);
   const r = await json(`/api/runs/${runId}/items`, { itemIds });
-  if (!r.ok) { $('status').className = 'err'; $('status').textContent = (await r.json()).error; setBusy(false); return; }
+  if (r.status === 404) { runId = null; results = {}; links(); render(); $('status').className = 'err'; $('status').textContent = 'The server was restarted and this run is gone. Click "Load model" again, then re-run.'; setBusy(false); return; }
+  if (!r.ok) { let m = 'Could not start the run.'; try { m = (await r.json()).error || m; } catch {} $('status').className = 'err'; $('status').textContent = m; setBusy(false); return; }
   const es = new EventSource(`/api/runs/${runId}/events`);
   es.onmessage = async (m) => {
     const ev = JSON.parse(m.data);
