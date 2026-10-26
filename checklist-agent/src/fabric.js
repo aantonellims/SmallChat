@@ -25,22 +25,28 @@ export function parseModelUrl(url) {
 // Local-dev token provider based on the Azure CLI. Swap for another provider when hosted.
 export function azCliTokenProvider() {
   const cache = new Map();
-  return (resource) =>
+  const fetchToken = (resource) =>
     new Promise((resolve, reject) => {
-      const hit = cache.get(resource);
-      if (hit && hit.exp > Date.now()) return resolve(hit.token);
       execFile(
         process.platform === 'win32' ? 'cmd.exe' : 'az',
         [...(process.platform === 'win32' ? ['/c', 'az'] : []), 'account', 'get-access-token', '--resource', resource, '--query', 'accessToken', '-o', 'tsv'],
         { timeout: 60000 },
-        (err, stdout, stderr) => {
-          if (err) return reject(new Error(`az login required: ${(stderr || err.message).trim()}`));
-          const token = stdout.trim();
-          cache.set(resource, { token, exp: Date.now() + 30 * 60 * 1000 });
-          resolve(token);
-        },
+        (err, stdout, stderr) => (err ? reject(new Error(`az login required: ${(stderr || err.message).trim()}`)) : resolve(stdout.trim())),
       );
     });
+  return async (resource) => {
+    const hit = cache.get(resource);
+    if (hit && hit.exp > Date.now()) return hit.token;
+    let token;
+    try {
+      token = await fetchToken(resource);
+    } catch {
+      await new Promise((r) => setTimeout(r, 2000));
+      token = await fetchToken(resource);
+    }
+    cache.set(resource, { token, exp: Date.now() + 30 * 60 * 1000 });
+    return token;
+  };
 }
 
 async function http(url, token, init = {}) {
@@ -60,6 +66,16 @@ export class SemanticModelClient {
     this.getToken = getToken;
     this.files = null;
     this.info = null;
+  }
+
+  async getWorkspaceName() {
+    try {
+      const token = await this.getToken('https://api.fabric.microsoft.com');
+      const res = await http(`${FABRIC_API}/workspaces/${this.workspaceId}`, token);
+      return res.ok ? (await res.json()).displayName : this.workspaceId;
+    } catch {
+      return this.workspaceId;
+    }
   }
 
   async getInfo() {

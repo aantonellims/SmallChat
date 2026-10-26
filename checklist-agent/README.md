@@ -5,11 +5,15 @@ Paste a Power BI / Fabric semantic model URL; a GitHub Copilot agent (via `@gith
 (`checklist.md`, from microsoft/fabric-toolbox) section by section and produces a recommendation report.
 
 ## How it works
-- `src/fabric.js` - parses the URL, downloads the model definition (TMDL) via Fabric REST `getDefinition`, runs read-only DAX via Power BI `executeQueries`.
-- `src/agent.js` - one Copilot session per checklist section; the agent only has read-only custom tools
-  (`list_model_files`, `read_model_file`, `search_model`, `run_dax`) and records one verdict per item
-  (`pass|warn|fail|manual|not_applicable`) with `record_item_result`. A final session writes the prioritized report.
-- `src/server.js` + `public/index.html` - Express API with SSE progress and a single-page UI.
+- `src/fabric.js` - parses the URL, downloads the model definition (TMDL) via Fabric REST `getDefinition`.
+- `src/agent.js` - one Copilot session per checklist section. The agent is given: (1) the hosted **Power BI authoring MCP**
+  (`https://api.fabric.microsoft.com/v1/mcp/powerbi/authoring`, authenticated with the signed-in user) to connect to the model and
+  run live DAX / `INFO.*` queries; (2) read-only TMDL tools; (3) the `semantic-model-review` skill (`skills/`) with the procedures
+  to execute a Best Practice Analyzer pass, a Memory Analyzer pass (storage DMVs), performance timing and dependency tracing;
+  (4) a specific prompt per checklist item (`src/prompts.js`). A permission guard rejects every non read-only MCP operation and any other MCP server.
+  Each item gets a verdict (`pass|warn|fail|manual|not_applicable`) with evidence and a detailed recommendation; a final session writes the executive report.
+- `src/auth.js` - Microsoft device-code sign-in (tenant ID, domain or email accepted).
+- `src/server.js` + `public/index.html` - Express API with SSE progress; login page, then the checklist page.
 
 ## Run locally
 Prerequisites: Node 20+, GitHub Copilot CLI signed in (`copilot`), Azure CLI signed in (`az login`) with access to the model
