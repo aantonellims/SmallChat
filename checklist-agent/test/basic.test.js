@@ -13,6 +13,13 @@ test('checklist parses sections, items and critical flags', () => {
   assert.ok(!items.some((i) => i.text.includes('](')));
 });
 
+test('every checklist item has item-specific guidance', async () => {
+  const { ITEM_GUIDANCE } = await import('../src/prompts.js');
+  const ids = loadChecklist().flatMap((s) => s.items.map((i) => i.id));
+  assert.deepEqual(ids.filter((id) => !ITEM_GUIDANCE[id]), []);
+  assert.deepEqual(Object.keys(ITEM_GUIDANCE).filter((id) => !ids.includes(id)), []);
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

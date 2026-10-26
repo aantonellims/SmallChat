@@ -1,4 +1,9 @@
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { guidanceFor } from './prompts.js';
+
+const SKILLS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills');
 
 export const STATUSES = ['pass', 'warn', 'fail', 'manual', 'not_applicable'];
 const MAX_TOOL_CHARS = 24000;
@@ -109,8 +114,12 @@ export function buildTools({ model, results, emit }) {
 const TOOL_NAMES = ['list_model_files', 'read_model_file', 'search_model', 'run_dax', 'record_item_result'];
 
 function sectionPrompt(section, info) {
-  const lines = section.items.map((i) => `- ${i.id}${i.critical ? ' [CRITICAL]' : ''}: ${i.text}`);
-  return `Semantic model: "${info.displayName}" (${info.id}).
+  const lines = section.items.map((i) => {
+    const g = guidanceFor(i.id);
+    return `- ${i.id}${i.critical ? ' [CRITICAL]' : ''}: ${i.text}\n    How to assess: ${g.how}${g.manual ? '\n    (Usually not verifiable from the model: answer manual unless you find direct evidence.)' : ''}`;
+  });
+  return `Use the semantic-model-review skill for where to find evidence in the TMDL.
+Semantic model: "${info.displayName}" (${info.id}).
 Checklist section: "${section.title}"
 ${section.notes.length ? `Context: ${section.notes.join(' ')}\n` : ''}Assess every item below and call record_item_result once per item id.
 ${lines.join('\n')}
@@ -134,6 +143,7 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       const session = await client.createSession({
         ...(copilotModel ? { model: copilotModel } : {}),
         tools: buildTools({ model, results, emit }),
+        skillDirectories: [SKILLS_DIR],
         availableTools: TOOL_NAMES,
         systemMessage: { mode: 'append', content: SYSTEM },
         onPermissionRequest: approveAll,

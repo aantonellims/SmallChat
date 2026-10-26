@@ -5,6 +5,7 @@ import path from 'node:path';
 import { loadChecklist } from './checklist.js';
 import { parseModelUrl, SemanticModelClient } from './fabric.js';
 import { runChecklist, renderReport } from './agent.js';
+import { startLogin, authStatus, logout, interactiveTokenProvider } from './auth.js';
 
 const app = express();
 app.use(express.json());
@@ -13,9 +14,24 @@ app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), '
 const sections = loadChecklist();
 const runs = new Map();
 
-app.get('/api/checklist', (_req, res) => res.json(sections));
+app.post('/api/login', async (req, res) => {
+  try {
+    res.json(await startLogin(String(req.body?.tenantId || '').trim()));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.get('/api/me', (_req, res) => res.json(authStatus()));
+app.post('/api/logout', (_req, res) => {
+  logout();
+  res.sendStatus(204);
+});
 
-app.post('/api/runs', (req, res) => {
+const requireLogin = (_req, res, next) => (authStatus().signedIn ? next() : res.status(401).json({ error: 'Please sign in first.' }));
+
+app.get('/api/checklist', requireLogin, (_req, res) => res.json(sections));
+
+app.post('/api/runs', requireLogin, (req, res) => {
   let ids;
   try {
     ids = parseModelUrl(req.body?.url);
@@ -29,7 +45,7 @@ app.post('/api/runs', (req, res) => {
     run.events.push(evt);
     for (const l of run.listeners) l(evt);
   };
-  runChecklist({ sections, model: new SemanticModelClient(ids), emit, signal: run.controller.signal })
+  runChecklist({ sections, model: new SemanticModelClient({ ...ids, getToken: interactiveTokenProvider() }), emit, signal: run.controller.signal })
     .then((r) => {
       run.report = renderReport({ sections, ...r });
       run.state = 'done';

@@ -22,7 +22,16 @@
 </head>
 <body>
 <h1>Semantic Model Checklist Agent</h1>
-<p class="sub">Paste a Power BI / Fabric semantic model URL. A GitHub Copilot agent runs the Data Agent readiness checklist and writes recommendations.</p>
+<div id="login" hidden>
+  <p class="sub">Sign in with your Microsoft account to read semantic models you have access to. A GitHub Copilot agent then runs the Data Agent readiness checklist.</p>
+  <form id="lf">
+    <input id="tenant" placeholder="Tenant ID or domain (optional, e.g. contoso.onmicrosoft.com)" />
+    <button id="lb">Sign in with Microsoft</button>
+  </form>
+  <div id="code"></div>
+</div>
+<div id="app" hidden>
+<p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a><br/>Paste a Power BI / Fabric semantic model URL.</p>
 <form id="f">
   <input id="url" placeholder="https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
   <button id="go">Run checklist</button>
@@ -31,6 +40,7 @@
 <div id="summary"></div>
 <div id="out"></div>
 <p><button id="dl" hidden>Download report (.md)</button></p>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_applicable: '➖', pending: '⏳' };
@@ -38,9 +48,30 @@ let sections = [], runId = null;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 async function init() {
+  const me = await (await fetch('/api/me')).json();
+  if (!me.signedIn) { $('login').hidden = false; $('app').hidden = true; return; }
+  $('login').hidden = true; $('app').hidden = false;
+  $('who').textContent = me.user.name;
   sections = await (await fetch('/api/checklist')).json();
   render({});
 }
+$('lf').onsubmit = async (e) => {
+  e.preventDefault();
+  $('lb').disabled = true;
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: $('tenant').value }) });
+  const b = await r.json();
+  if (!r.ok) { $('code').className = 'err'; $('code').textContent = b.error; $('lb').disabled = false; return; }
+  $('code').className = '';
+  $('code').innerHTML = `Open <a href="${esc(b.verificationUri)}" target="_blank">${esc(b.verificationUri)}</a> and enter code <b style="font-size:1.4rem">${esc(b.userCode)}</b>`;
+  window.open(b.verificationUri, '_blank');
+  const poll = setInterval(async () => {
+    const me = await (await fetch('/api/me')).json();
+    if (me.signedIn) { clearInterval(poll); $('lb').disabled = false; init(); }
+    else if (me.error) { clearInterval(poll); $('code').className = 'err'; $('code').textContent = me.error; $('lb').disabled = false; }
+  }, 2000);
+};
+$('lo').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', { method: 'POST' }); init(); };
+
 function render(results) {
   $('out').innerHTML = sections.map((s) => `<h3>${esc(s.title)}</h3><table><tr><th></th><th>Item</th><th>Evidence</th><th>Recommendation</th></tr>` +
     s.items.map((i) => {
