@@ -5,13 +5,21 @@ import path from 'node:path';
 import { loadChecklist } from './checklist.js';
 import { parseModelUrl, SemanticModelClient } from './fabric.js';
 import { runChecklist, renderReport } from './agent.js';
-import { startLogin, authStatus, logout, interactiveTokenProvider } from './auth.js';
+import { renderReportHtml, renderItemHtml } from './reportHtml.js';
+import { startLogin, authStatus as realAuthStatus, logout, interactiveTokenProvider } from './auth.js';
+import { azCliTokenProvider } from './fabric.js';
+
+// AUTH_MODE=az reuses the Azure CLI login (local testing only); default is the interactive Microsoft sign-in.
+const azMode = process.env.AUTH_MODE === 'az';
+const authStatus = () => (azMode ? { signedIn: true, user: { name: 'Azure CLI session' }, error: null, pending: false } : realAuthStatus());
+const tokenProvider = azMode ? azCliTokenProvider() : interactiveTokenProvider();
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')));
 
 const sections = loadChecklist();
+const allIds = sections.flatMap((s) => s.items.map((i) => i.id));
 const runs = new Map();
 
 app.post('/api/login', async (req, res) => {
@@ -31,23 +39,20 @@ const requireLogin = (_req, res, next) => (authStatus().signedIn ? next() : res.
 
 app.get('/api/checklist', requireLogin, (_req, res) => res.json(sections));
 
-app.post('/api/runs', requireLogin, (req, res) => {
-  let ids;
-  try {
-    ids = parseModelUrl(req.body?.url);
-  } catch (e) {
-    return res.status(400).json({ error: e.message });
-  }
-  const id = randomUUID();
-  const run = { id, state: 'running', events: [], listeners: new Set(), report: null, error: null, controller: new AbortController() };
-  runs.set(id, run);
+// Starts (or re-starts) a run of the given items on an existing run object; results accumulate in run.results.
+function execute(run, itemIds) {
+  run.state = 'running';
+  run.error = null;
+  run.events = [];
+  run.controller = new AbortController();
   const emit = (evt) => {
     run.events.push(evt);
     for (const l of run.listeners) l(evt);
   };
-  runChecklist({ sections, model: new SemanticModelClient({ ...ids, getToken: interactiveTokenProvider() }), emit, signal: run.controller.signal })
+  runChecklist({ sections, model: run.model, emit, signal: run.controller.signal, itemIds, existing: run.results })
     .then((r) => {
-      run.report = renderReport({ sections, ...r });
+      run.info = r.info;
+      if (r.summary) run.summary = r.summary;
       run.state = 'done';
       emit({ type: 'done' });
     })
@@ -56,7 +61,57 @@ app.post('/api/runs', requireLogin, (req, res) => {
       run.error = e.message;
       emit({ type: 'error', message: e.message });
     });
+}
+
+const snapshot = (run) => ({
+  id: run.id,
+  state: run.state,
+  error: run.error,
+  info: run.info,
+  summary: run.summary,
+  results: Object.fromEntries(run.results),
+});
+
+// body: { url, prepare?: true, itemIds?: string[] }. prepare=true only creates the run so items can be run one by one.
+app.post('/api/runs', requireLogin, (req, res) => {
+  let ids;
+  try {
+    ids = parseModelUrl(req.body?.url);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  const id = randomUUID();
+  const run = {
+    id,
+    state: 'ready',
+    events: [],
+    listeners: new Set(),
+    results: new Map(),
+    summary: '',
+    info: null,
+    error: null,
+    controller: new AbortController(),
+    model: new SemanticModelClient({ ...ids, getToken: tokenProvider }),
+  };
+  runs.set(id, run);
+  if (!req.body?.prepare) execute(run, Array.isArray(req.body?.itemIds) ? req.body.itemIds.filter((x) => allIds.includes(x)) : undefined);
   res.status(202).json({ id });
+});
+
+// Runs (or re-runs) selected items on an existing run, reusing the already downloaded model definition.
+app.post('/api/runs/:id/items', requireLogin, (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.sendStatus(404);
+  if (run.state === 'running') return res.status(409).json({ error: 'A run is already in progress.' });
+  const itemIds = (req.body?.itemIds ?? []).filter((x) => allIds.includes(x));
+  if (!itemIds.length) return res.status(400).json({ error: 'No valid itemIds.' });
+  execute(run, itemIds);
+  res.status(202).json({ id: run.id });
+});
+
+app.get('/api/runs/:id', (req, res) => {
+  const run = runs.get(req.params.id);
+  return run ? res.json(snapshot(run)) : res.sendStatus(404);
 });
 
 app.get('/api/runs/:id/events', (req, res) => {
@@ -75,11 +130,25 @@ app.get('/api/runs/:id/events', (req, res) => {
   req.on('close', () => run.listeners.delete(l));
 });
 
+const reportInput = (run) => ({ sections, results: Object.fromEntries(run.results), info: run.info ?? { displayName: 'Semantic model' }, summary: run.summary });
+
 app.get('/api/runs/:id/report', (req, res) => {
   const run = runs.get(req.params.id);
   if (!run) return res.sendStatus(404);
-  if (run.state !== 'done') return res.status(409).json({ state: run.state, error: run.error });
-  res.type('text/markdown').send(run.report);
+  res.type('text/markdown').send(renderReport(reportInput(run)));
+});
+
+app.get('/api/runs/:id/items/:itemId/html', (req, res) => {
+  const run = runs.get(req.params.id);
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === req.params.itemId);
+  if (!run || !item) return res.sendStatus(404);
+  res.type('html').send(renderItemHtml(item, run.results.get(item.id)));
+});
+
+app.get('/runs/:id/report', (req, res) => {
+  const run = runs.get(req.params.id);
+  if (!run) return res.status(404).send('Run not found (the server may have restarted).');
+  res.type('html').send(renderReportHtml(reportInput(run)));
 });
 
 app.delete('/api/runs/:id', (req, res) => {

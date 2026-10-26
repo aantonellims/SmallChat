@@ -30,6 +30,15 @@ test('permission guard allows read-only MCP operations and blocks mutations', as
   assert.equal(permissionHandler({ kind: 'shell' }).kind, 'reject');
 });
 
+test('html report renders markdown and neutralizes raw HTML', async () => {
+  const { renderReportHtml } = await import('../src/reportHtml.js');
+  const sections = [{ id: 's1', title: 'S', notes: [], items: [{ id: 'i01', text: 'Item', critical: true }] }];
+  const results = { i01: { itemId: 'i01', status: 'fail', headline: 'H <b>x</b>', evidence: '- **a**\n<script>alert(1)</script>', recommendation: '```dax\nEVALUATE 1\n```' } };
+  const html = renderReportHtml({ sections, results, info: { displayName: 'M' }, summary: '### Sum' });
+  assert.ok(!html.includes('<script>alert'));
+  assert.ok(html.includes('<strong>a</strong>') && html.includes('<pre>') && html.includes('<h3>Sum</h3>'));
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

@@ -23,7 +23,7 @@ Rules:
   pass = verified OK; warn = partially OK / improvement advised; fail = clearly not met;
   manual = only for pure process/UI items that no tool can verify (Data Agent UI, M365 publishing, team processes) or when your tools genuinely failed (state the error);
   not_applicable = does not apply to this model (e.g. Direct Lake items on an Import model).
-- evidence: concrete findings with object names, counts, measured numbers (max 1200 chars). recommendation: detailed, actionable fix with exact object names and, where useful, the corrected DAX/TMDL/steps (max 1000 chars; empty if pass).
+- headline: one plain-text line (max 140 chars) stating the finding. evidence: detailed markdown findings with concrete object names, counts, measured numbers (use bullets). recommendation: detailed, actionable markdown fix with exact object names and, where useful, corrected DAX/TMDL in fenced code blocks (empty if pass).
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
 
@@ -95,16 +95,17 @@ export function buildTools({ model, results, emit }) {
         properties: {
           item_id: { type: 'string' },
           status: { type: 'string', enum: STATUSES },
-          evidence: { type: 'string' },
-          recommendation: { type: 'string' },
+          headline: { type: 'string', description: 'One-line finding, max 140 chars, no markdown' },
+          evidence: { type: 'string', description: 'Detailed findings in markdown (bullets, object names, numbers)' },
+          recommendation: { type: 'string', description: 'Detailed fix in markdown, may include DAX/TMDL code blocks' },
         },
-        required: ['item_id', 'status', 'evidence'],
+        required: ['item_id', 'status', 'headline', 'evidence'],
         additionalProperties: false,
       },
       skipPermission: true,
-      handler: async ({ item_id, status, evidence, recommendation = '' }) => {
+      handler: async ({ item_id, status, headline, evidence, recommendation = '' }) => {
         if (!STATUSES.includes(status)) return `Invalid status. Use one of: ${STATUSES.join(', ')}`;
-        const r = { itemId: item_id, status, evidence: evidence.slice(0, 1500), recommendation: recommendation.slice(0, 1200) };
+        const r = { itemId: item_id, status, headline: String(headline).slice(0, 180), evidence: evidence.slice(0, 4000), recommendation: recommendation.slice(0, 3000) };
         results.set(item_id, r);
         emit({ type: 'item', ...r });
         return 'recorded';
@@ -151,7 +152,7 @@ ${lines.join('\n')}
 When all items are recorded, reply with the single word DONE.`;
 }
 
-export async function runChecklist({ sections, model, emit, copilotModel = process.env.COPILOT_MODEL, signal }) {
+export async function runChecklist({ sections, model, emit, copilotModel = process.env.COPILOT_MODEL, signal, itemIds, existing }) {
   const info = await model.getInfo();
   emit({ type: 'model', name: info.displayName, id: info.id });
   emit({ type: 'status', message: 'Downloading semantic model definition (TMDL)...' });
@@ -159,11 +160,14 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
   emit({ type: 'status', message: `Definition loaded: ${files.size} files.` });
   const ctx = { workspaceId: model.workspaceId, workspaceName: (await model.getWorkspaceName?.()) ?? model.workspaceId };
 
-  const results = new Map();
+  const results = existing ?? new Map();
+  const targets = (itemIds
+    ? sections.map((s) => ({ ...s, items: s.items.filter((i) => itemIds.includes(i.id)) })).filter((s) => s.items.length)
+    : sections);
   const client = new CopilotClient();
   await client.start?.();
   try {
-    for (const section of sections) {
+    for (const section of targets) {
       if (signal?.aborted) throw new Error('Run cancelled.');
       emit({ type: 'section', id: section.id, title: section.title, items: section.items.length });
       const token = await model.getToken('https://api.fabric.microsoft.com');
@@ -192,14 +196,18 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       }
       for (const item of section.items) {
         if (!results.has(item.id)) {
-          const r = { itemId: item.id, status: 'manual', evidence: 'The agent did not return a verdict for this item.', recommendation: 'Review this item manually.' };
+          const r = { itemId: item.id, status: 'manual', headline: 'No verdict returned by the agent.', evidence: 'The agent did not return a verdict for this item.', recommendation: 'Re-run this item or review it manually.' };
           results.set(item.id, r);
           emit({ type: 'item', ...r });
         }
       }
     }
-    emit({ type: 'status', message: 'Writing recommendations...' });
-    const summary = await summarize({ client, sections, results, info, copilotModel });
+    const complete = sections.every((s) => s.items.every((i) => results.has(i.id)));
+    let summary = '';
+    if (complete) {
+      emit({ type: 'status', message: 'Writing recommendations...' });
+      summary = await summarize({ client, sections, results, info, copilotModel });
+    }
     return { info, results: Object.fromEntries(results), summary };
   } finally {
     await client.stop?.();
@@ -238,14 +246,22 @@ export function renderReport({ sections, results, info, summary }) {
   const out = [`# Semantic model readiness report: ${info.displayName}`, ''];
   out.push(`Pass ${count('pass')} · Warn ${count('warn')} · Fail ${count('fail')} · Manual ${count('manual')} · N/A ${count('not_applicable')}`, '');
   if (summary) out.push(summary, '');
+  out.push('## Detailed findings', '');
   for (const s of sections) {
-    out.push(`## ${s.title}`, '', '| | Item | Evidence | Recommendation |', '|---|---|---|---|');
+    out.push(`### ${s.title}`, '', '| | Item | Finding |', '|---|---|---|');
+    const cell = (t) => String(t || '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
     for (const i of s.items) {
       const r = results[i.id];
-      const cell = (t) => String(t || '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
-      out.push(`| ${icon[r.status]} | ${i.critical ? '**' : ''}${cell(i.text)}${i.critical ? '**' : ''} | ${cell(r.evidence)} | ${cell(r.recommendation)} |`);
+      out.push(`| ${r ? icon[r.status] : '⏳'} | ${i.critical ? '**' : ''}${cell(i.text)}${i.critical ? '**' : ''} | ${cell(r?.headline)} |`);
     }
     out.push('');
+    for (const i of s.items) {
+      const r = results[i.id];
+      if (!r) continue;
+      out.push(`#### ${icon[r.status]} ${i.id} - ${i.text}`, '', `**Finding:** ${r.headline || ''}`, '');
+      if (r.evidence) out.push('**Evidence**', '', r.evidence, '');
+      if (r.recommendation) out.push('**Recommendation**', '', r.recommendation, '');
+    }
   }
   return out.join('\n');
 }

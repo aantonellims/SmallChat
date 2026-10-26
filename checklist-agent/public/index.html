@@ -5,23 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Semantic Model Checklist Agent</title>
 <style>
-  body { font: 15px/1.5 Segoe UI, system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; }
-  h1 { margin-bottom: .2rem } .sub { color: #666; margin-top: 0 }
-  form { display: flex; gap: .5rem; margin: 1.2rem 0 }
-  input { flex: 1; padding: .6rem; border: 1px solid #bbb; border-radius: 6px; font-size: 1rem }
-  button { padding: .6rem 1.2rem; border: 0; border-radius: 6px; background: #0f6cbd; color: #fff; font-size: 1rem; cursor: pointer }
-  button:disabled { background: #999 }
-  #status { color: #444; min-height: 1.5rem }
-  table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem }
-  th, td { border: 1px solid #ddd; padding: .4rem .6rem; vertical-align: top; text-align: left }
-  th { background: #f3f3f3 } td.s { width: 2rem; text-align: center }
-  tr.crit td:nth-child(2) { font-weight: 600 } .pending td { color: #999 }
-  pre { background: #f7f7f7; padding: 1rem; overflow: auto; white-space: pre-wrap }
-  .err { color: #b00020 }
+  body { font: 15px/1.5 Segoe UI, system-ui, sans-serif; margin: 0; color: #1b1b1b; background: #fafafa }
+  header { background: #0f2b46; color: #fff; padding: 1rem 2rem } header h1 { margin: 0; font-size: 1.3rem }
+  main { max-width: 1150px; margin: 1.2rem auto; padding: 0 1.5rem }
+  .sub { color: #555 } a { color: #0f6cbd }
+  form { display: flex; gap: .5rem; margin: 1rem 0 }
+  input[type=text], input:not([type]) { flex: 1; padding: .6rem; border: 1px solid #bbb; border-radius: 6px; font-size: 1rem }
+  button { padding: .5rem 1rem; border: 0; border-radius: 6px; background: #0f6cbd; color: #fff; font-size: .95rem; cursor: pointer }
+  button.sec { background: #fff; color: #0f6cbd; border: 1px solid #0f6cbd }
+  button.mini { padding: .15rem .55rem; font-size: .85rem } button:disabled { background: #aaa; border-color: #aaa; color: #fff; cursor: default }
+  #toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: .5rem 0 }
+  #status { color: #444; min-height: 1.4rem; margin: .3rem 0 } .err { color: #b00020 }
+  .chip { display: inline-block; padding: .1rem .6rem; border-radius: 99px; background: #fff; border: 1px solid #ddd; margin-right: .3rem }
+  h3 { margin: 1.4rem 0 .3rem; display: flex; align-items: center; gap: .6rem }
+  table { border-collapse: collapse; width: 100%; background: #fff }
+  td, th { border-bottom: 1px solid #e6e6e6; padding: .4rem .6rem; text-align: left; vertical-align: top }
+  th { background: #f3f3f3; font-weight: 600 } td.s { width: 1.8rem; text-align: center } td.c { width: 1.5rem } td.a { width: 4.5rem; text-align: right; white-space: nowrap }
+  tr.item { cursor: pointer } tr.item:hover { background: #f5f9ff } tr.crit td.t { font-weight: 600 } tr.pending td.t { color: #888 }
+  td.h { color: #444 }
+  #drawer { position: fixed; top: 0; right: 0; width: min(620px, 92vw); height: 100%; background: #fff; box-shadow: -4px 0 18px rgba(0,0,0,.2); padding: 1rem 1.4rem 2rem; overflow: auto; transform: translateX(100%); transition: transform .2s }
+  #drawer.open { transform: none } #drawer h4 { margin: 1rem 0 .2rem; color: #0f2b46 }
+  pre { background: #f3f3f3; padding: .7rem; overflow: auto; border-radius: 6px } code { background: #f3f3f3; padding: 0 .2rem; border-radius: 4px }
 </style>
 </head>
 <body>
-<h1>Semantic Model Checklist Agent</h1>
+<header><h1>Semantic Model Checklist Agent</h1></header>
+<main>
 <div id="login" hidden>
   <p class="sub">Sign in with your Microsoft account to read semantic models you have access to. A GitHub Copilot agent then runs the Data Agent readiness checklist.</p>
   <form id="lf">
@@ -31,21 +40,30 @@
   <div id="code"></div>
 </div>
 <div id="app" hidden>
-<p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a><br/>Paste a Power BI / Fabric semantic model URL.</p>
-<form id="f">
-  <input id="url" placeholder="https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
-  <button id="go">Run checklist</button>
-</form>
-<div id="status"></div>
-<div id="summary"></div>
-<div id="out"></div>
-<p><button id="dl" hidden>Download report (.md)</button></p>
+  <p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a></p>
+  <form id="f">
+    <input id="url" placeholder="https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
+    <button id="load" type="button" class="sec">Load model</button>
+    <button id="go">Run full checklist</button>
+  </form>
+  <div id="toolbar" hidden>
+    <button id="runall">▶ Run all</button>
+    <button id="runsel" class="sec">▶ Run selected</button>
+    <a id="reportlink" href="#" target="_blank">Open full report ↗</a>
+    <a id="dl" href="#">Download .md</a>
+    <span id="chips"></span>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
 </div>
+</main>
+<aside id="drawer"><button id="close" class="sec mini" style="float:right">Close</button><h3 id="dtitle"></h3><div id="dbody"></div></aside>
 <script>
 const $ = (id) => document.getElementById(id);
 const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_applicable: '➖', pending: '⏳' };
-let sections = [], runId = null;
+let sections = [], runId = null, results = {}, busy = false, current = null;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const json = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
 
 async function init() {
   const me = await (await fetch('/api/me')).json();
@@ -53,12 +71,12 @@ async function init() {
   $('login').hidden = true; $('app').hidden = false;
   $('who').textContent = me.user.name;
   sections = await (await fetch('/api/checklist')).json();
-  render({});
+  render();
 }
 $('lf').onsubmit = async (e) => {
   e.preventDefault();
   $('lb').disabled = true;
-  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: $('tenant').value }) });
+  const r = await json('/api/login', { tenantId: $('tenant').value });
   const b = await r.json();
   if (!r.ok) { $('code').className = 'err'; $('code').textContent = b.error; $('lb').disabled = false; return; }
   $('code').className = '';
@@ -72,21 +90,65 @@ $('lf').onsubmit = async (e) => {
 };
 $('lo').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', { method: 'POST' }); init(); };
 
-function render(results) {
-  $('out').innerHTML = sections.map((s) => `<h3>${esc(s.title)}</h3><table><tr><th></th><th>Item</th><th>Evidence</th><th>Recommendation</th></tr>` +
+function render() {
+  $('chips').innerHTML = ['pass', 'warn', 'fail', 'manual', 'not_applicable'].map((s) => `<span class="chip">${icon[s]} ${Object.values(results).filter((r) => r.status === s).length}</span>`).join('');
+  $('out').innerHTML = sections.map((s) => `<h3>${esc(s.title)} <button class="mini sec" data-run-section="${s.id}" ${runId && !busy ? '' : 'disabled'}>▶ Run section</button></h3>
+<table><tr><th class="c"><input type="checkbox" data-sec="${s.id}"></th><th></th><th>Item</th><th>Finding</th><th></th></tr>` +
     s.items.map((i) => {
       const r = results[i.id];
-      return `<tr class="${i.critical ? 'crit' : ''} ${r ? '' : 'pending'}"><td class="s">${icon[r ? r.status : 'pending']}</td><td>${esc(i.text)}</td><td>${esc(r?.evidence)}</td><td>${esc(r?.recommendation)}</td></tr>`;
+      return `<tr class="item ${i.critical ? 'crit' : ''} ${r ? '' : 'pending'}" data-item="${i.id}">
+<td class="c"><input type="checkbox" class="sel" data-id="${i.id}" data-s="${s.id}"></td><td class="s">${icon[r ? r.status : 'pending']}</td>
+<td class="t">${esc(i.text)}</td><td class="h">${esc(r?.headline)}</td>
+<td class="a"><button class="mini" data-run="${i.id}" ${runId && !busy ? '' : 'disabled'}>${r ? '↻ Re-run' : '▶ Run'}</button></td></tr>`;
     }).join('') + '</table>').join('');
 }
-$('f').onsubmit = async (e) => {
-  e.preventDefault();
-  $('go').disabled = true; $('dl').hidden = true; $('summary').innerHTML = ''; $('status').className = '';
-  const results = {}; render(results);
-  const res = await fetch('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: $('url').value }) });
-  const body = await res.json();
-  if (!res.ok) { $('status').className = 'err'; $('status').textContent = body.error; $('go').disabled = false; return; }
-  runId = body.id;
+
+$('out').onclick = async (e) => {
+  const t = e.target;
+  if (t.dataset.run) return start([t.dataset.run]);
+  if (t.dataset.runSection) return start(sections.find((s) => s.id === t.dataset.runSection).items.map((i) => i.id));
+  if (t.dataset.sec) { document.querySelectorAll(`.sel[data-s="${t.dataset.sec}"]`).forEach((c) => (c.checked = t.checked)); return; }
+  if (t.classList.contains('sel') || t.tagName === 'INPUT') return;
+  const row = t.closest('tr[data-item]');
+  if (row) openDrawer(row.dataset.item);
+};
+async function openDrawer(id) {
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
+  $('dtitle').textContent = `${icon[results[id]?.status ?? 'pending']} ${item.text}`;
+  $('dbody').innerHTML = runId ? await (await fetch(`/api/runs/${runId}/items/${id}/html`)).text() : '<i>Load a model first.</i>';
+  $('drawer').classList.add('open');
+}
+$('close').onclick = () => $('drawer').classList.remove('open');
+
+function links() {
+  $('toolbar').hidden = !runId;
+  if (runId) { $('reportlink').href = `/runs/${runId}/report`; $('dl').href = `/api/runs/${runId}/report`; $('dl').download = 'semantic-model-report.md'; }
+}
+function setBusy(b) { busy = b; $('runall').disabled = $('runsel').disabled = $('go').disabled = $('load').disabled = b; render(); }
+
+async function ensureRun() {
+  if (runId) return true;
+  const r = await json('/api/runs', { url: $('url').value, prepare: true });
+  const b = await r.json();
+  if (!r.ok) { $('status').className = 'err'; $('status').textContent = b.error; return false; }
+  runId = b.id; results = {}; links(); render();
+  return true;
+}
+$('url').oninput = () => { runId = null; results = {}; links(); render(); };
+$('load').onclick = async () => { $('status').className = ''; if (await ensureRun()) $('status').textContent = 'Model loaded. Run all items, a section, or a single item with ▶.'; };
+$('f').onsubmit = async (e) => { e.preventDefault(); if (await ensureRun()) start(sections.flatMap((s) => s.items.map((i) => i.id))); };
+$('runall').onclick = () => start(sections.flatMap((s) => s.items.map((i) => i.id)));
+$('runsel').onclick = () => {
+  const ids = [...document.querySelectorAll('.sel:checked')].map((c) => c.dataset.id);
+  if (!ids.length) { $('status').textContent = 'Select at least one item.'; return; }
+  start(ids);
+};
+
+async function start(itemIds) {
+  if (busy || !(await ensureRun())) return;
+  $('status').className = ''; setBusy(true);
+  const r = await json(`/api/runs/${runId}/items`, { itemIds });
+  if (!r.ok) { $('status').className = 'err'; $('status').textContent = (await r.json()).error; setBusy(false); return; }
   const es = new EventSource(`/api/runs/${runId}/events`);
   es.onmessage = async (m) => {
     const ev = JSON.parse(m.data);
@@ -94,19 +156,11 @@ $('f').onsubmit = async (e) => {
     if (ev.type === 'model') $('status').textContent = `Model: ${ev.name}`;
     if (ev.type === 'section') $('status').textContent = `Assessing: ${ev.title}`;
     if (ev.type === 'tool') $('status').textContent += ` · ${ev.name}`;
-    if (ev.type === 'item') { results[ev.itemId] = ev; render(results); }
-    if (ev.type === 'error') { $('status').className = 'err'; $('status').textContent = ev.message; es.close(); $('go').disabled = false; }
-    if (ev.type === 'done') {
-      es.close(); $('go').disabled = false; $('status').textContent = 'Done.';
-      const md = await (await fetch(`/api/runs/${runId}/report`)).text();
-      const top = md.split('\n## ')[0];
-      $('summary').innerHTML = '<pre>' + esc(top) + '</pre>';
-      $('dl').hidden = false;
-      $('dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = 'semantic-model-report.md'; a.click(); };
-    }
+    if (ev.type === 'item') { results[ev.itemId] = ev; render(); }
+    if (ev.type === 'error') { $('status').className = 'err'; $('status').textContent = ev.message; es.close(); setBusy(false); }
+    if (ev.type === 'done') { es.close(); $('status').textContent = 'Done. Click a row for details or open the full report.'; setBusy(false); }
   };
-  es.onerror = () => { if (es.readyState === EventSource.CLOSED) $('go').disabled = false; };
-};
+}
 init();
 </script>
 </body>
