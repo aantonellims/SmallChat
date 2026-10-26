@@ -15,8 +15,9 @@ Rules:
   manual = cannot be verified from the model definition or DAX (e.g. runs in a notebook, Power BI Desktop UI, Data Agent UI, report-level artifacts, process items) - say what the user must do;
   not_applicable = does not apply to this model (e.g. Direct Lake items on an Import model).
 - evidence: concrete facts (object names, counts, file paths), max 600 chars. recommendation: one actionable fix (empty if pass), max 400 chars.
-- Items marked critical matter most; be strict on them.
-- run_dax is read-only: use EVALUATE only, keep results small (TOPN / INFO.* functions are fine).
+- Prep for AI settings (AI data schema, verified answers, AI instructions) are only visible if the definition exposes them (e.g. a Copilot/ folder or annotations). If nothing is found, you CANNOT prove they are missing: use manual (explain how to verify in Power BI Desktop/service), never fail. Use fail only when files/annotations exist and are clearly empty, wrong or contradictory.
+- Items marked critical matter most; be strict on them for things you CAN verify.
+- run_dax is read-only and runs through the Power BI executeQueries REST API: use EVALUATE only, keep results small (TOPN). INFO.* functions are NOT supported there and some models disallow DAX entirely; if DAX fails, rely on the TMDL files and mark runtime-only items (performance, memory, row counts) as manual.
 - Do not modify anything. Do not ask the user questions; decide with the evidence available.`;
 
 export function buildTools({ model, results, emit }) {

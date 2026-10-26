@@ -30,9 +30,9 @@ export function azCliTokenProvider() {
       const hit = cache.get(resource);
       if (hit && hit.exp > Date.now()) return resolve(hit.token);
       execFile(
-        'az',
-        ['account', 'get-access-token', '--resource', resource, '--query', 'accessToken', '-o', 'tsv'],
-        { shell: true, timeout: 60000 },
+        process.platform === 'win32' ? 'cmd.exe' : 'az',
+        [...(process.platform === 'win32' ? ['/c', 'az'] : []), 'account', 'get-access-token', '--resource', resource, '--query', 'accessToken', '-o', 'tsv'],
+        { timeout: 60000 },
         (err, stdout, stderr) => {
           if (err) return reject(new Error(`az login required: ${(stderr || err.message).trim()}`));
           const token = stdout.trim();
@@ -93,7 +93,11 @@ export class SemanticModelClient {
         if (res.status >= 400) throw new Error(`getDefinition poll failed (${res.status}): ${await res.text()}`);
       }
     }
-    if (!res.ok) throw new Error(`getDefinition failed (${res.status}): ${await res.text()}`);
+    if (!res.ok) {
+      const body = await res.text();
+      const hint = res.status === 404 || res.status === 403 ? ' Reading the definition requires Read+Write permission on the semantic model (and the model must not be a system-generated usage metrics model).' : '';
+      throw new Error(`getDefinition failed (${res.status}).${hint} ${body.slice(0, 300)}`);
+    }
     const body = await res.json();
     const parts = body.definition?.parts;
     if (!parts) throw new Error('getDefinition returned no definition parts.');

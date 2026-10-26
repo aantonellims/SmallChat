@@ -24,3 +24,13 @@ npm start                # http://localhost:3000
 
 Optional: `COPILOT_MODEL=<model id>` to pick the model. Items that cannot be verified from the definition/DAX
 (notebook runs, Desktop-only UI, Data Agent UI) are reported as `manual` with guidance.
+
+CLI alternative: `node scripts/run.js "<model url>" report.md`.
+
+## Known limitations (found while testing on a real model)
+- Reading the definition uses Fabric `getDefinition`, which needs **Read + Write** permission on the model; system-generated
+  "Usage Metrics" models are not supported (404).
+- DAX goes through the `executeQueries` REST API: needs Build permission, `INFO.*` functions are not supported, and some
+  models/tenants disallow it. The agent falls back to the TMDL definition and marks runtime-only items as `manual`.
+- Prep for AI settings (AI schema, verified answers, instructions) were not present in the returned definition of the tested
+  model, so those items are reported as `manual` rather than `fail`.
