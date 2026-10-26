@@ -38,12 +38,14 @@ export function parseChecklist(markdown) {
   return sections.filter((s) => s.items.length > 0);
 }
 
-// Upstream checklist plus this tool's extra sections. The DAX section is shown right after "Semantic Model Optimization".
+// Upstream checklist plus this tool's extra sections, shown right after "Semantic Model Optimization".
+const EXTRA_ORDER = [/^DAX Best Practices/i, /^Question-to-DAX/i];
+
 export function loadChecklist(file = DEFAULT_FILE, extra = EXTRA_FILE) {
   let text = readFileSync(file, 'utf8');
   if (extra && existsSync(extra)) text += `\n${readFileSync(extra, 'utf8')}`;
   const sections = parseChecklist(text);
-  const i = sections.findIndex((s) => /^DAX Best Practices/i.test(s.title));
-  if (i > 1) sections.splice(1, 0, ...sections.splice(i, 1));
-  return sections;
+  const extras = EXTRA_ORDER.map((re) => sections.findIndex((s) => re.test(s.title))).filter((i) => i > 0).map((i) => sections[i]);
+  const rest = sections.filter((s) => !extras.includes(s));
+  return [rest[0], ...extras, ...rest.slice(1)];
 }

@@ -32,7 +32,7 @@ Rules:
 - Items marked critical matter most; be strict.
 - Do not modify the model. Do not ask the user questions; decide with the evidence available.`;
 
-export function buildTools({ model, results, emit, dataAgent }) {
+export function buildTools({ model, results, emit, dataAgent, validIds }) {
   const files = async () => model.loadDefinition();
   let agentFiles = null;
   const agentTools = dataAgent
@@ -130,6 +130,7 @@ export function buildTools({ model, results, emit, dataAgent }) {
       },
       skipPermission: true,
       handler: async ({ item_id, status, headline, fixable = false, evidence, recommendation = '' }) => {
+        if (validIds && !validIds.has(item_id)) return `Unknown item_id "${item_id}". Use exactly one of the ids listed in the prompt: ${[...validIds].join(', ')}`;
         if (!STATUSES.includes(status)) return `Invalid status. Use one of: ${STATUSES.join(', ')}`;
         const r = { itemId: item_id, status, headline: String(headline).slice(0, 180), fixable: !!fixable && ['warn', 'fail'].includes(status) && !!recommendation, evidence: evidence.slice(0, 4000), recommendation: recommendation.slice(0, 3000) };
         results.set(item_id, r);
@@ -205,7 +206,7 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       const token = await model.getToken('https://api.fabric.microsoft.com');
       const session = await client.createSession({
         ...(copilotModel ? { model: copilotModel } : {}),
-        tools: buildTools({ model, results, emit: track, dataAgent }),
+        tools: buildTools({ model, results, emit: track, dataAgent, validIds: new Set(section.items.map((i) => i.id)) }),
         skillDirectories: [SKILLS_DIR],
         mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },
         availableTools: TOOL_NAMES,

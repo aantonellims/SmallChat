@@ -20,14 +20,23 @@ Via the powerbi-modeling MCP (`dax_query_operations` Execute): `EVALUATE INFO.VI
 | Hard-coded literals | dates/ids/numbers such as `DATE(2020,...)`, `"2021"`, `= 12345` | Parameter table or Date table column |
 | Zero/empty text for no data | `, 0)` / `, "")` as the else branch of IF | Return BLANK() |
 | Time intelligence | `TOTALYTD|SAMEPERIODLASTYEAR|DATEADD|DATESYTD` | Requires a marked, continuous Date table; check `isKey`/`dataCategory: Time` on the Date table and no gaps |
+| SUMMARIZE with extension columns | `SUMMARIZE\s*\([^)]*,\s*"` (new columns created inside SUMMARIZE) | `SUMMARIZECOLUMNS` or `ADDCOLUMNS(SUMMARIZE(...), ...)` |
+| Virtual relationship via FILTER/CONTAINS/INTERSECT | `CONTAINS\(|INTERSECT\(` used to filter one table by another | `TREATAS(values, Table[Col])` |
+| LOOKUPVALUE where a relationship exists | `LOOKUPVALUE` | `RELATED` / `RELATEDTABLE` |
+| EARLIER | `EARLIER\(` | `VAR` captured before the iterator |
+| Context transition in iterators | a `[Measure]` reference inside `SUMX|AVERAGEX|RANKX|ADDCOLUMNS|FILTER` over a large table | Pre-aggregate, move logic to a column, or use a smaller iteration grain |
+| DISTINCTCOUNT on very high cardinality | `DISTINCTCOUNT` on a column with cardinality near the row count (check with `COUNTROWS(DISTINCT(col))`) | Use a surrogate key / pre-aggregate; reduce cardinality |
 
 ## Step 3 - measure correctness (this finds real bugs)
 For each key measure (top ~8 by importance: totals, ratios, YoY/YTD, cumulative, rank):
 1. `EVALUATE ROW("v", [Measure])` and `EVALUATE TOPN(20, SUMMARIZECOLUMNS('Date'[Year], "v", [Measure]))` (or another key dimension).
 2. Flag: error, BLANK for every row, identical value for every row, negative where impossible, ratios > 100%, YoY that is always BLANK/0, and logic that reads inverted (e.g. `1 - DIVIDE(prior, current)` for growth). Cross-check with a simple recomputation (e.g. compare a ratio to its numerator/denominator measures).
 
-## Step 4 - performance (execute)
+## Step 4 - performance (owned by the "Use Performance Analyzer" item; reuse its timings, re-measure only if missing)
 For the same measures: run the queries above twice (after ClearCache = cold, then warm) and record duration; also a query with a high-cardinality dimension (`TOPN(100, SUMMARIZECOLUMNS(Dim[Key], "v", [Measure]))`). Flag > 1 s (warn) and > 5 s (fail). For slow measures name the cause from Step 2 and give the rewritten DAX.
+
+## Step 5 - robustness under filters
+For 3-5 ratio/percent/average/rank measures: compare the grand total and subtotals with a recomputation (a total of ratios is wrong); run percent-of-total and ALL/ALLSELECTED/REMOVEFILTERS measures with and without a filter (e.g. a single year) and check the meaning is preserved.
 
 ## Output style
 Evidence: a markdown table `Measure | Finding | Time (cold/warm) | Pattern`. Recommendation: actions that name the measure and give the corrected DAX in one short fenced block when the fix is a formula. Mark `fixable: true` when the fix is a change to measure expressions / properties.

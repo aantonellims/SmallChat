@@ -25,7 +25,7 @@ Files: `definition/model.tmdl`, `definition/relationships.tmdl`, `definition/tab
 
 Rules: cite concrete object names and counts; quote little; never invent.
 
-For the "DAX Best Practices and Performance" section read `references/dax-best-practices.md` in this skill (procedure: collect expressions, static anti-pattern analysis, correctness runs, cold/warm timing) and use the `powerbi-modeling` skill (MEASURES-DAX.md, PERFORMANCE.md) as the rule source.
+For the "DAX Best Practices" section read `references/dax-best-practices.md` in this skill (procedure: collect expressions, static anti-pattern analysis, correctness runs, robustness under filters) and use the `powerbi-modeling` skill (MEASURES-DAX.md, PERFORMANCE.md) as the rule source. Query timing belongs to the "Use Performance Analyzer" item. For the "Question-to-DAX Validation" section read `references/question-to-dax.md`.
 
 ## Connecting and DAX via MCP
 1. `connection_operations` -> operation `ConnectFabric` with the workspace id + model id given in the prompt (operation `Help` shows the shape).
@@ -33,6 +33,7 @@ For the "DAX Best Practices and Performance" section read `references/dax-best-p
 3. All operations must be read-only.
 
 ## Best Practice Analyzer (execute these rules, report violations with counts + objects)
+Scope: MODEL rules only. DAX expression rules (FILTER, DIVIDE, IFERROR, VAR, references, volatile functions) are reported in the "DAX Best Practices" section, not here.
 Performance: avoid bi-directional / many-to-many relationships; disable auto date/time tables (LocalDateTable_*); hide/remove unused or high-cardinality columns (GUIDs, free text, datetime with time part -> split); avoid calculated columns/tables that can be done in the source; set `summarizeBy none` on non-additive numerics; avoid measures with nested iterators / FILTER(ALL(...)) / entire-table FILTER; use DIVIDE instead of "/"; avoid IFERROR/ISERROR; avoid ADDCOLUMNS+SUMMARIZE misuse; use variables for repeated expressions.
 Error prevention: relationships on integer keys, active relationships have matching types, no ambiguous inactive relationships without USERELATIONSHIP measures, mark a proper Date table, no columns with data type mismatch, no empty/duplicate keys on the one side.
 Formatting: every visible measure has formatString; visible columns have friendly names/format; hide foreign keys, sort-by helper columns; display folders for >10 measures; consistent naming (no snake_case/prefixes) and descriptions.

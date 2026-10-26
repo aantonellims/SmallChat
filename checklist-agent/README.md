@@ -5,10 +5,13 @@ Paste a Power BI / Fabric semantic model URL; a GitHub Copilot agent (via `@gith
 (`checklist.md`, from microsoft/fabric-toolbox) section by section and produces a recommendation report.
 
 ## How it works
-- `checklist.md` is the upstream Microsoft checklist; `checklist-extra.md` adds a **DAX Best Practices and Performance** section
-  (13 items, shown right after "Semantic Model Optimization"). The agent executes it: it collects all measure expressions through the MCP,
-  runs anti-pattern analysis (FILTER over tables, "/" vs DIVIDE, IFERROR, missing VAR, nested iterators, reference style, SELECTEDVALUE,
-  time intelligence, calculated columns, relationships), verifies measure correctness by running the key measures, and times them cold/warm.
+- `checklist.md` is the upstream Microsoft checklist; `checklist-extra.md` adds two sections shown right after "Semantic Model Optimization":
+  - **DAX Best Practices** (13 items): the agent collects every measure expression through the MCP, analyses anti-patterns (FILTER over tables,
+    "/" vs DIVIDE, IFERROR, VAR, iterators/context transition, references, SELECTEDVALUE, time intelligence, calculated columns, BLANK/literals,
+    SUMMARIZE/TREATAS/LOOKUPVALUE patterns), runs the key measures to verify correctness and robustness under filters. Query timing is owned by the
+    upstream "Use Performance Analyzer" item and model-structure rules by the BPA item, so nothing is reported twice.
+  - **Question-to-DAX Validation** (6 items): the agent acts as a Data Agent without needing one: it writes 8-10 realistic business questions and the DAX for each,
+    executes them, cross-checks answers with an independent calculation, times them and lists questions the model answers poorly.
   Sources: Microsoft Learn DAX best practices, Power BI optimization guidance and the awesome-copilot `powerbi-modeling` skill (`skills/powerbi-modeling`, MIT, see `NOTICE.md`).
 - `src/fabric.js` - parses the URL, downloads the model definition (TMDL) via Fabric REST `getDefinition`.
 - `src/agent.js` - one Copilot session per checklist section. The agent is given: (1) the hosted **Power BI authoring MCP**
