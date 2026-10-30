@@ -41,11 +41,18 @@ No workspace yet? Use `npx rayfin up --capacity-id <capacity-guid>` to prepare a
 
 **5. Sign in to GitHub Copilot** on the machine that runs the agent (once, from the repo root: `cd ..`): `npx copilot login`, or `gh auth login`.
 
-**6. Start the agent**, allowing the hosting URL to call it (back in the repo root)
-```bash
-ALLOWED_ORIGINS=https://<hosting-url> npm start          # PowerShell: $env:ALLOWED_ORIGINS='https://<hosting-url>'; npm start
+**6. Start the agent** (the "brain" that runs the checks). The deployed page in Fabric is only a screen; it needs the agent running somewhere to do the work. Run this from the repo root (`cd ..`), replacing the URL with the one printed in step 4:
+
+```powershell
+# Windows PowerShell
+$env:ALLOWED_ORIGINS = 'https://<hosting-url>'
+npm start
 ```
-By default the UI talks to `http://localhost:3000`, so the agent runs on the same machine as your browser. To host the agent elsewhere, set `VITE_CHECKLIST_API_URL=https://<agent-url>` in `rayfin-app/packages/frontend/.env.production` before step 2.
+```bash
+# macOS / Linux
+ALLOWED_ORIGINS=https://<hosting-url> npm start
+```
+Leave this window open while you use the app. `ALLOWED_ORIGINS` just tells the agent "accept requests coming from my Fabric app page"; without it the browser blocks the page from talking to the agent. The page looks for the agent at `http://localhost:3000`, so run it on the same computer as your browser. To host the agent on a server instead, set `VITE_CHECKLIST_API_URL=https://<agent-url>` in `rayfin-app/packages/frontend/.env.production` before step 2.
 
 **7. Open the app** from the Fabric portal (or the hosting URL), sign in to Fabric, and follow *Getting started* below.
 
