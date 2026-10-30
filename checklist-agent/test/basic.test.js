@@ -179,6 +179,36 @@ test('CLI device-code sign-in (no OAuth App needed) with a fake Copilot CLI', as
   delete process.env.GH_TOKEN;
 });
 
+test('CLI browser sign-in (web flow) is chosen for local use and parsed from the CLI output', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cli-web-'));
+  const fake = path.join(dir, 'fake-copilot.js');
+  writeFileSync(fake, `
+    const args = process.argv.slice(2);
+    if (args.includes('--web-flow')) {
+      console.log('Opening your browser to authenticate...');
+      console.log("If it doesn't open automatically, visit:");
+      console.log('https://github.com/login/oauth/authorize?client_id=x&state=y');
+      console.log('Waiting for authorization...');
+      setTimeout(() => process.exit(0), 300);
+    } else process.exit(0);
+  `);
+  process.env.COPILOT_CLI_PATH = fake;
+  process.env.COPILOT_APP_HOME = path.join(dir, 'home');
+  delete process.env.GITHUB_CLIENT_ID;
+  const gh = await import('../src/githubAuth.js');
+  const start = await gh.startGithubLogin(fetch, { web: true });
+  assert.equal(start.method, 'cli-web');
+  assert.ok(start.verificationUri.startsWith('https://github.com/login/oauth/authorize'));
+  for (let i = 0; i < 100 && !gh.githubStatus().signedIn; i++) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(gh.githubStatus().signedIn, true);
+  gh.githubLogout();
+  delete process.env.COPILOT_CLI_PATH;
+  delete process.env.COPILOT_APP_HOME;
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

@@ -30,19 +30,30 @@ function cliEnv() {
   return env;
 }
 
-// Runs `copilot login --device-code`, resolves with the code to show, and completes the sign-in in the background.
-export function startCliLogin(spawnImpl = spawn) {
+// Runs `copilot login`, and completes the sign-in in the background.
+//  web=true  : `--web-flow`, the normal browser sign-in (the CLI opens the browser and captures the callback on 127.0.0.1;
+//              works only when the browser runs on the same machine as the server, e.g. local use)
+//  web=false : `--device-code`, resolves with a code to type at github.com/login/device (works for a remote web app)
+export function startCliLogin(spawnImpl = spawn, { web = false } = {}) {
   state.error = null;
   state.cliProc?.kill();
   mkdirSync(appHome(), { recursive: true });
-  const [cmd, args] = cliCommand(['login', '--device-code']);
+  const [cmd, args] = cliCommand(['login', web ? '--web-flow' : '--device-code']);
   const proc = spawnImpl(cmd, args, { env: cliEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   state.cliProc = proc;
   let output = '';
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { proc.kill(); reject(new Error(`The Copilot CLI did not return a sign-in code. Output: ${output.slice(0, 300) || '(none)'}`)); }, 30000);
+    const timer = setTimeout(() => { proc.kill(); reject(new Error(`The Copilot CLI did not return a sign-in ${web ? 'link' : 'code'}. Output: ${output.slice(0, 300) || '(none)'}`)); }, 30000);
     const onData = (chunk) => {
       output += chunk.toString();
+      if (web) {
+        const w = /visit:?\s*(https:\/\/\S+)/i.exec(output);
+        if (w) {
+          clearTimeout(timer);
+          resolve({ verificationUri: w[1], method: 'cli-web' });
+        }
+        return;
+      }
       const m = /visit\s+(\S+)\s+and enter code\s+([A-Z0-9-]+)/i.exec(output);
       if (m) {
         clearTimeout(timer);
@@ -55,7 +66,7 @@ export function startCliLogin(spawnImpl = spawn) {
     proc.on('exit', (code) => {
       state.cliProc = null;
       if (code === 0) writeFileSync(marker(), new Date().toISOString());
-      else if (!/enter code/i.test(output)) { clearTimeout(timer); reject(new Error(`Copilot CLI sign-in failed: ${output.slice(0, 300)}`)); }
+      else if (!/enter code|visit/i.test(output)) { clearTimeout(timer); reject(new Error(`Copilot CLI sign-in failed: ${output.slice(0, 300)}`)); }
       else state.error = 'GitHub sign-in did not complete. Try again.';
     });
   });
@@ -63,8 +74,8 @@ export function startCliLogin(spawnImpl = spawn) {
 
 export const githubAvailableMethod = () => (process.env.GITHUB_CLIENT_ID ? 'oauth' : cliAvailable() ? 'cli' : null);
 
-export async function startGithubLogin(fetchImpl = fetch) {
-  if (githubAvailableMethod() === 'cli') return startCliLogin();
+export async function startGithubLogin(fetchImpl = fetch, { web = false } = {}) {
+  if (githubAvailableMethod() === 'cli') return startCliLogin(spawn, { web });
   if (!githubAvailable()) throw new Error('GitHub sign-in is not available: the Copilot CLI package is missing and GITHUB_CLIENT_ID is not set.');
   state.error = null;
   state.abort?.abort();

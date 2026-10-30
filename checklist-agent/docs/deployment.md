@@ -6,7 +6,7 @@ On a web app there is no developer machine login, so you choose the identity exp
 
 | Option | Copilot identity | Setup | Best for |
 |---|---|---|---|
-| **A. "Connect GitHub Copilot" (in-app, no setup)** | The signed-in user's **own** Copilot plan (`github-user` mode) | Nothing to configure: the button runs the Copilot CLI's device-code sign-in (GitHub's own app) in the app's isolated Copilot home; the user types a code on github.com/login/device. Optional alternative: your own OAuth App via `GITHUB_CLIENT_ID` | Your own deployment: the profile follows you, not the server |
+| **A. The app owner's profile (default) + optional "Sign in with a different GitHub account"** | By default the profile configured for the app (option B or the host login); end users never see GitHub. The optional button switches to the signed-in user's **own** Copilot plan (`github-user` mode) | Nothing to configure. The button runs the Copilot CLI sign-in in the app's isolated Copilot home: the normal **browser sign-in** when you use the app on the same machine as the server (`localhost`), otherwise a **code** to type at github.com/login/device (GitHub's callback cannot reach a remote server). Optional alternative: your own OAuth App via `GITHUB_CLIENT_ID` | Owner-run deployment: users just use the app; the owner can sign in once |
 | **B. Service token** | One account's Copilot plan (`COPILOT_GITHUB_TOKEN`) | Store the token as an App Service setting / Key Vault secret | Unattended use by one owner; usage is billed to that account |
 | **C. Bring your own model** | No Copilot seat: Azure AI Foundry / Azure OpenAI / OpenAI / Anthropic | `COPILOT_PROVIDER_*` variables, managed identity | Teams, production, central cost control |
 

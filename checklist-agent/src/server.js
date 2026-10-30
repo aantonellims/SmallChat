@@ -65,9 +65,12 @@ app.get('/api/copilot/status', async (req, res) => {
 });
 
 // "Connect GitHub Copilot": GitHub OAuth device flow, so a deployed app uses the user's own Copilot plan.
-app.post('/api/github/login', async (_req, res) => {
+// "Sign in with a different GitHub account". Local use (browser and server on the same machine) gets the normal browser sign-in;
+// a remote web app falls back to the device code because GitHub's callback cannot reach the server's loopback address.
+app.post('/api/github/login', async (req, res) => {
   try {
-    res.json(await startGithubLogin());
+    const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(req.hostname);
+    res.json(await startGithubLogin(fetch, { web: local && req.query.mode !== 'device' }));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
