@@ -12,6 +12,17 @@ On a web app there is no developer machine login, so you choose the identity exp
 
 Everything else is configuration as code and is the same in all three: the skills ship in `skills/`, the Power BI MCP is attached per session (read-only guard), the model list is read from the runtime, and the readiness banner / `GET /api/copilot/status` shows what is missing. Scope of option A to verify when you create the OAuth App: the app requests `read:user` by default (override with `GITHUB_SCOPE` if Copilot rejects the token).
 
+**Creating the OAuth App for option A (about 1 minute, GitHub does not offer an API for this).** GitHub, Settings, Developer settings, OAuth Apps, New OAuth App:
+
+| Field | Value |
+|---|---|
+| Application name | `Semantic Model Checklist Agent` (anything) |
+| Homepage URL | `http://localhost:3000` locally, or your web app URL |
+| Authorization callback URL | same as the homepage (the device flow does not use it, but the form requires one) |
+| **Enable Device Flow** | **tick this box** |
+
+Do not generate a client secret (the device flow does not need one). Copy the **Client ID** and start the app with `GITHUB_CLIENT_ID=<client id>` (PowerShell: `$env:GITHUB_CLIENT_ID='<id>'; node src/server.js`; on a web app: an application setting). The page then shows **Connect GitHub Copilot**.
+
 ## "Prebuilt environment in the GitHub cloud": what exists and what fits
 
 1. **Prebuilt container (recommended).** The `Dockerfile` bakes the app, the Copilot runtime (bundled with `@github/copilot-sdk`), the skills and the MCP configuration into one image; run it on Azure Container Apps / Web App for Containers / any host. It is the closest thing to "a prebuilt Copilot environment" that keeps the interactive UX. *Status: written from the SDK docs; not built here (no Docker on the dev machine), but the production-only dependency install and a start with the image's file set were verified.* GitHub documents a variant where the Copilot CLI runs separately in headless mode (`copilot --headless --port 4321`) and the app connects with `RuntimeConnection.forUri`; there is no official CLI image, you build your own.
