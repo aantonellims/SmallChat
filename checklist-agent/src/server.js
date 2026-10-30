@@ -8,6 +8,7 @@ import { runChecklist, runFix, renderReport } from './agent.js';
 import { fileDiff, renderDiffHtml, toPatch, toZip, DIFF_CSS } from './fixes.js';
 import { renderReportHtml, renderItemHtml } from './reportHtml.js';
 import { startLogin, authStatus as realAuthStatus, logout, interactiveTokenProvider } from './auth.js';
+import { copilotStatus, config as copilotCfg } from './copilotEnv.js';
 import { azCliTokenProvider } from './fabric.js';
 
 // AUTH_MODE=az reuses the Azure CLI login (local testing only); default is the interactive Microsoft sign-in.
@@ -41,6 +42,27 @@ const requireLogin = (_req, res, next) => (authStatus().signedIn ? next() : res.
 
 app.get('/api/checklist', requireLogin, (_req, res) => res.json(sections));
 
+// Copilot readiness (auth, selectable models, skills, MCP reachability). Cached because starting the runtime is slow.
+let statusCache = { at: 0, value: null, pending: null };
+async function getCopilotStatus(force = false) {
+  if (!force && statusCache.value && Date.now() - statusCache.at < 5 * 60 * 1000) return statusCache.value;
+  statusCache.pending ??= copilotStatus().then((v) => {
+    statusCache = { at: Date.now(), value: v, pending: null };
+    return v;
+  }).catch((e) => {
+    statusCache.pending = null;
+    throw e;
+  });
+  return statusCache.pending;
+}
+app.get('/api/copilot/status', async (req, res) => {
+  try {
+    res.json(await getCopilotStatus(req.query.refresh === '1'));
+  } catch (e) {
+    res.status(500).json({ ready: false, problems: [e.message] });
+  }
+});
+
 // Starts (or re-starts) a run of the given items on an existing run object; results accumulate in run.results.
 function execute(run, itemIds) {
   for (const id of itemIds ?? allIds) run.fixes.delete(id);
@@ -52,7 +74,7 @@ function execute(run, itemIds) {
     run.events.push(evt);
     for (const l of run.listeners) l(evt);
   };
-  runChecklist({ sections: run.sections, model: run.model, emit, signal: run.controller.signal, itemIds, existing: run.results, dataAgent: run.dataAgent })
+  runChecklist({ sections: run.sections, model: run.model, emit, signal: run.controller.signal, itemIds, existing: run.results, dataAgent: run.dataAgent, copilotModel: run.copilotModel })
     .then((r) => {
       run.info = r.info;
       if (r.summary) run.summary = r.summary;
@@ -77,14 +99,21 @@ const snapshot = (run) => ({
 
 // body: { url, dataAgentUrl?, prepare?: true, itemIds?: string[] }. prepare=true only creates the run so items can be run one by one.
 // Data Agent sections are only part of the run when the customer provides the URL of an existing Data Agent.
-app.post('/api/runs', requireLogin, (req, res) => {
+app.post('/api/runs', requireLogin, async (req, res) => {
   let ids;
   let dataAgent = null;
+  let copilotModel;
   try {
     ids = parseModelUrl(req.body?.url);
     if (String(req.body?.dataAgentUrl || '').trim()) {
       const d = parseDataAgentUrl(req.body.dataAgentUrl);
       dataAgent = { ...d, load: () => fetchItemDefinition({ workspaceId: d.workspaceId, itemId: d.itemId, getToken: tokenProvider }) };
+    }
+    const wanted = String(req.body?.model || '').trim();
+    if (wanted) {
+      const known = statusCache.value?.models?.map((m) => m.id);
+      if (known?.length && !known.includes(wanted)) throw new Error(`Model "${wanted}" is not available. Pick one from the list.`);
+      copilotModel = wanted;
     }
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -99,6 +128,7 @@ app.post('/api/runs', requireLogin, (req, res) => {
     fixes: new Map(),
     sections: sections.filter((s) => s.scope === 'model' || dataAgent),
     dataAgent,
+    copilotModel,
     summary: '',
     info: null,
     error: null,
@@ -170,7 +200,7 @@ app.post('/api/runs/:id/items/:itemId/fix', requireLogin, (req, res) => {
   if (existing?.state === 'running') return res.status(202).json({ state: 'running' });
   const fix = { state: 'running', changes: [], files: null, summary: '', warnings: [], noFix: '', error: null };
   run.fixes.set(item.id, fix);
-  runFix({ model: run.model, item, result, info: run.info ?? { displayName: 'Semantic model' } })
+  runFix({ model: run.model, item, result, info: run.info ?? { displayName: 'Semantic model' }, copilotModel: run.copilotModel })
     .then((r) => Object.assign(fix, r, { state: 'done' }))
     .catch((e) => Object.assign(fix, { state: 'error', error: e.message }));
   res.status(202).json({ state: 'running' });
@@ -207,4 +237,10 @@ app.delete('/api/runs/:id', (req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-app.listen(port, '127.0.0.1', () => console.log(`Checklist agent on http://localhost:${port}`));
+app.listen(port, process.env.HOST || '127.0.0.1', () => {
+  console.log(`Checklist agent on http://localhost:${port} (Copilot mode: ${copilotCfg.mode})`);
+  // Preflight: tell the operator immediately if Copilot/skills/MCP are not usable.
+  getCopilotStatus().then((s) => {
+    console.log(s.ready ? `Preflight OK: ${s.models.length} model(s) available, skills and MCP found.` : `Preflight problems:\n - ${s.problems.join('\n - ')}`);
+  }).catch((e) => console.log(`Preflight failed: ${e.message}`));
+});

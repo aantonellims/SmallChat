@@ -24,6 +24,7 @@ Paste a Power BI / Fabric semantic model URL; a GitHub Copilot agent (via `@gith
 - `src/server.js` + `public/index.html` - Express API with SSE progress; login page, then the checklist page.
 
 ## Run locally
+See also: `docs/deployment.md` (Azure Web App / Rayfin, Copilot auth modes, BYOK, model choice, limitations) and `docs/ux-and-fix-preview.md` (UX and fix-preview brief).
 Prerequisites: Node 20+, GitHub Copilot CLI signed in (`copilot`), Azure CLI signed in (`az login`) with access to the model
 (Build permission; Fabric item read + definition access).
 

@@ -1,10 +1,7 @@
-import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+import { approveAll, defineTool } from '@github/copilot-sdk';
 import { guidanceFor } from './prompts.js';
 import { ModelCopy } from './fixes.js';
-
-const SKILLS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills');
+import { createCopilotClient, modelSessionOptions, SKILLS_DIR, MCP_URL } from './copilotEnv.js';
 
 export const STATUSES = ['pass', 'warn', 'fail', 'manual', 'not_applicable'];
 const MAX_TOOL_CHARS = 24000;
@@ -143,7 +140,6 @@ export function buildTools({ model, results, emit, dataAgent, validIds }) {
 
 const TOOL_NAMES = ['list_model_files', 'read_model_file', 'search_model', 'record_item_result', 'read_data_agent_definition', 'mcp:*', 'skill', 'tool_search_tool'];
 const MCP_SERVER = 'powerbi-modeling';
-const MCP_URL = process.env.PBI_MCP_URL || 'https://api.fabric.microsoft.com/v1/mcp/powerbi/authoring';
 const READ_ONLY_OPS = /^(help|get\w*|list\w*|execute\w*|validate\w*|exporttmdl|connectfabric|connect|disconnect|clearcache|checkstatus)$/i;
 
 // Allows read-only MCP operations and benign built-ins; rejects any mutating MCP operation, shell, file writes and URLs.
@@ -192,7 +188,7 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
   const targets = (itemIds
     ? sections.map((s) => ({ ...s, items: s.items.filter((i) => itemIds.includes(i.id)) })).filter((s) => s.items.length)
     : sections);
-  const client = new CopilotClient();
+  const client = createCopilotClient();
   await client.start?.();
   try {
     const fresh = new Set();
@@ -205,7 +201,7 @@ export async function runChecklist({ sections, model, emit, copilotModel = proce
       emit({ type: 'section', id: section.id, title: section.title, items: section.items.length });
       const token = await model.getToken('https://api.fabric.microsoft.com');
       const session = await client.createSession({
-        ...(copilotModel ? { model: copilotModel } : {}),
+        ...modelSessionOptions(copilotModel),
         tools: buildTools({ model, results, emit: track, dataAgent, validIds: new Set(section.items.map((i) => i.id)) }),
         skillDirectories: [SKILLS_DIR],
         mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },
@@ -271,7 +267,7 @@ async function summarize({ client, sections, results, info, copilotModel }) {
     }),
   );
   const session = await client.createSession({
-    ...(copilotModel ? { model: copilotModel } : {}),
+    ...modelSessionOptions(copilotModel),
     availableTools: [],
     systemMessage: { mode: 'append', content: 'You write concise, prioritized remediation reports for semantic model owners. Use only the findings provided.' },
     onPermissionRequest: approveAll,
@@ -388,12 +384,12 @@ export async function runFix({ model, item, result, info, copilotModel = process
     }),
   ];
 
-  const client = new CopilotClient();
+  const client = createCopilotClient();
   await client.start?.();
   try {
     const token = await model.getToken('https://api.fabric.microsoft.com');
     const session = await client.createSession({
-      ...(copilotModel ? { model: copilotModel } : {}),
+      ...modelSessionOptions(copilotModel),
       tools,
       skillDirectories: [SKILLS_DIR],
       mcpServers: { 'powerbi-modeling': { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` }, tools: ['*'] } },

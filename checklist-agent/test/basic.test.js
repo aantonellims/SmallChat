@@ -82,6 +82,29 @@ test('data agent sections are scoped out unless a Data Agent URL is given', asyn
   assert.throws(() => parseDataAgentUrl('https://app.fabric.microsoft.com/home'));
 });
 
+test('copilot config: local, github-token and BYOK modes with isolation', async () => {
+  const { copilotConfig } = await import('../src/copilotEnv.js');
+  const local = copilotConfig({});
+  assert.equal(local.mode, 'local');
+  assert.equal(local.baseDirectory, undefined);
+  assert.equal(local.provider('x'), undefined);
+
+  const tok = copilotConfig({ COPILOT_GITHUB_TOKEN: 'abc', COPILOT_MODEL: 'm1' });
+  assert.equal(tok.mode, 'github-token');
+  assert.equal(tok.clientOptions.gitHubToken, 'abc');
+  assert.equal(tok.clientOptions.useLoggedInUser, false);
+  assert.ok(tok.baseDirectory?.endsWith('.copilot-home'));
+  assert.equal(tok.defaultModel, 'm1');
+
+  const byok = copilotConfig({ COPILOT_PROVIDER_TYPE: 'azure', COPILOT_PROVIDER_BASE_URL: 'https://x.openai.azure.com', COPILOT_PROVIDER_API_KEY: 'k', COPILOT_BYOK_MODELS: 'gpt-a, gpt-b' });
+  assert.equal(byok.mode, 'byok');
+  assert.deepEqual(byok.clientOptions.onListModels().map((m) => m.id), ['gpt-a', 'gpt-b']);
+  const p = byok.provider('gpt-b');
+  assert.deepEqual([p.type, p.baseUrl, p.apiKey, p.wireModel], ['azure', 'https://x.openai.azure.com', 'k', 'gpt-b']);
+  assert.equal(byok.defaultModel, 'gpt-a');
+  assert.equal(copilotConfig({ COPILOT_PROVIDER_TYPE: 'azure', COPILOT_PROVIDER_BASE_URL: 'https://x', COPILOT_PROVIDER_AUTH: 'managed-identity' }).provider('m').bearerTokenProvider.constructor.name, 'AsyncFunction');
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

@@ -57,6 +57,8 @@
 </div>
 <div id="app" hidden>
   <p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a></p>
+  <div id="copilotbanner"></div>
+  <p class="sub" style="margin:.2rem 0 .6rem">Model used by the agent: <select id="modelsel" style="padding:.3rem;border:1px solid #bbb;border-radius:6px"><option value="">Loading models...</option></select> <a href="#" id="modelrefresh">refresh</a> <span id="modelinfo"></span></p>
   <form id="f">
     <input id="url" placeholder="Semantic model URL: https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
     <button id="load" type="button" class="sec">Load model</button>
@@ -89,6 +91,21 @@ const json = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Typ
 // Data Agent sections are only shown when a Data Agent URL is provided.
 const visibleSections = () => sections.filter((s) => s.scope !== 'dataagent' || $('daurl').value.trim());
 
+async function loadCopilot(force) {
+  const sel = $('modelsel');
+  let s;
+  try { s = await (await fetch(`/api/copilot/status${force ? '?refresh=1' : ''}`)).json(); } catch { s = { ready: false, problems: ['Could not reach the server.'], models: [] }; }
+  const saved = localStorage.getItem('model') || '';
+  const models = s.models || [];
+  sel.innerHTML = `<option value="">${s.defaultModel ? `Default (${esc(s.defaultModel)})` : 'Default (chosen by Copilot)'}</option>` +
+    models.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}${m.premium != null ? ` · x${m.premium}` : ''}${m.reasoning ? ' · reasoning' : ''}</option>`).join('');
+  sel.value = models.some((m) => m.id === saved) ? saved : '';
+  $('modelinfo').textContent = `(${s.mode === 'byok' ? 'your own model provider' : s.mode === 'github-token' ? 'GitHub Copilot via service token' : 'GitHub Copilot on this machine'}${s.auth?.login ? `, ${s.auth.login}` : ''})`;
+  $('copilotbanner').innerHTML = s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+}
+$('modelsel').onchange = () => { localStorage.setItem('model', $('modelsel').value); runId = null; results = {}; links(); render(); $('status').textContent = 'Model changed: load the model again to use it.'; };
+$('modelrefresh').onclick = (e) => { e.preventDefault(); loadCopilot(true); };
+
 async function init() {
   const me = await (await fetch('/api/me')).json();
   if (!me.signedIn) { $('login').hidden = false; $('app').hidden = true; return; }
@@ -96,6 +113,7 @@ async function init() {
   $('who').textContent = me.user.name;
   sections = await (await fetch('/api/checklist')).json();
   render();
+  loadCopilot(false);
 }
 $('lf').onsubmit = async (e) => {
   e.preventDefault();
@@ -193,7 +211,7 @@ function setBusy(b) { busy = b; $('runall').disabled = $('runsel').disabled = $(
 
 async function ensureRun() {
   if (runId) return true;
-  const r = await json('/api/runs', { url: $('url').value, dataAgentUrl: $('daurl').value.trim(), prepare: true });
+  const r = await json('/api/runs', { url: $('url').value, dataAgentUrl: $('daurl').value.trim(), model: $('modelsel').value, prepare: true });
   const b = await r.json();
   if (!r.ok) { $('status').className = 'err'; $('status').textContent = b.error; return false; }
   runId = b.id; results = {}; links(); render();
