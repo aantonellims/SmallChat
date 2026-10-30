@@ -1,0 +1,8 @@
+node_modules
+.copilot-home
+.git
+.env
+report*.md
+docs
+test
+scripts

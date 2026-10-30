@@ -105,6 +105,39 @@ test('copilot config: local, github-token and BYOK modes with isolation', async 
   assert.equal(copilotConfig({ COPILOT_PROVIDER_TYPE: 'azure', COPILOT_PROVIDER_BASE_URL: 'https://x', COPILOT_PROVIDER_AUTH: 'managed-identity' }).provider('m').bearerTokenProvider.constructor.name, 'AsyncFunction');
 });
 
+test('github-user mode uses the signed-in GitHub token and isolates the runtime', async () => {
+  const { copilotConfig } = await import('../src/copilotEnv.js');
+  const c = copilotConfig({}, 'gho_user');
+  assert.equal(c.mode, 'github-user');
+  assert.equal(c.clientOptions.gitHubToken, 'gho_user');
+  assert.equal(c.clientOptions.useLoggedInUser, false);
+  assert.ok(c.baseDirectory?.endsWith('.copilot-home'));
+  // an explicit service token still wins over the interactive sign-in
+  assert.equal(copilotConfig({ COPILOT_GITHUB_TOKEN: 'svc' }, 'gho_user').mode, 'github-token');
+});
+
+test('GitHub device flow signs in with a mocked GitHub', async () => {
+  const gh = await import('../src/githubAuth.js');
+  process.env.GITHUB_CLIENT_ID = 'test-client';
+  let polls = 0;
+  const mock = async (url) => {
+    const json = (o, ok = true) => ({ ok, status: ok ? 200 : 400, json: async () => o });
+    if (url.endsWith('/login/device/code')) return json({ device_code: 'dc', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', interval: 0.01, expires_in: 60 });
+    if (url.endsWith('/login/oauth/access_token')) return json(++polls < 2 ? { error: 'authorization_pending' } : { access_token: 'gho_abc' });
+    if (url.endsWith('/user')) return json({ login: 'octo', name: 'Octo' });
+    throw new Error(`unexpected ${url}`);
+  };
+  const start = await gh.startGithubLogin(mock);
+  assert.equal(start.userCode, 'ABCD-1234');
+  for (let i = 0; i < 100 && !gh.githubStatus().signedIn; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(gh.githubStatus().signedIn, true);
+  assert.equal(gh.githubToken(), 'gho_abc');
+  assert.equal(gh.githubStatus().user.login, 'octo');
+  gh.githubLogout();
+  assert.equal(gh.githubToken(), null);
+  delete process.env.GITHUB_CLIENT_ID;
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

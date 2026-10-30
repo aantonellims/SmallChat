@@ -8,7 +8,8 @@ import { runChecklist, runFix, renderReport } from './agent.js';
 import { fileDiff, renderDiffHtml, toPatch, toZip, DIFF_CSS } from './fixes.js';
 import { renderReportHtml, renderItemHtml } from './reportHtml.js';
 import { startLogin, authStatus as realAuthStatus, logout, interactiveTokenProvider } from './auth.js';
-import { copilotStatus, config as copilotCfg } from './copilotEnv.js';
+import { copilotStatus, currentConfig } from './copilotEnv.js';
+import { startGithubLogin, githubStatus, githubLogout } from './githubAuth.js';
 import { azCliTokenProvider } from './fabric.js';
 
 // AUTH_MODE=az reuses the Azure CLI login (local testing only); default is the interactive Microsoft sign-in.
@@ -61,6 +62,30 @@ app.get('/api/copilot/status', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ready: false, problems: [e.message] });
   }
+});
+
+// "Connect GitHub Copilot": GitHub OAuth device flow, so a deployed app uses the user's own Copilot plan.
+app.post('/api/github/login', async (_req, res) => {
+  try {
+    res.json(await startGithubLogin());
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+let ghSeen = null;
+app.get('/api/github/status', (_req, res) => {
+  const s = githubStatus();
+  if (s.signedIn && ghSeen !== s.user?.login) {
+    ghSeen = s.user?.login ?? null;
+    statusCache = { at: 0, value: null, pending: null }; // new identity: re-check models and auth
+  }
+  res.json(s);
+});
+app.post('/api/github/logout', (_req, res) => {
+  githubLogout();
+  ghSeen = null;
+  statusCache = { at: 0, value: null, pending: null };
+  res.sendStatus(204);
 });
 
 // Starts (or re-starts) a run of the given items on an existing run object; results accumulate in run.results.
@@ -238,7 +263,7 @@ app.delete('/api/runs/:id', (req, res) => {
 
 const port = Number(process.env.PORT || 3000);
 app.listen(port, process.env.HOST || '127.0.0.1', () => {
-  console.log(`Checklist agent on http://localhost:${port} (Copilot mode: ${copilotCfg.mode})`);
+  console.log(`Checklist agent on http://localhost:${port} (Copilot mode: ${currentConfig().mode})`);
   // Preflight: tell the operator immediately if Copilot/skills/MCP are not usable.
   getCopilotStatus().then((s) => {
     console.log(s.ready ? `Preflight OK: ${s.models.length} model(s) available, skills and MCP found.` : `Preflight problems:\n - ${s.problems.join('\n - ')}`);

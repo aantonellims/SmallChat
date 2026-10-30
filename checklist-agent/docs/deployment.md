@@ -1,5 +1,30 @@
 # Deploying the app (Azure Web App, container, Rayfin) - Copilot, MCP, skills and models
 
+## Short answer: which GitHub/Copilot profile does a deployed app use?
+
+On a web app there is no developer machine login, so you choose the identity explicitly. In order of preference for **a single user or a small trusted team**:
+
+| Option | Copilot identity | Setup | Best for |
+|---|---|---|---|
+| **A. "Connect GitHub Copilot" (in-app)** | The signed-in user's **own** Copilot plan (GitHub OAuth device flow, `github-user` mode) | Create a GitHub OAuth App, tick **Enable Device Flow**, set `GITHUB_CLIENT_ID`. The page then shows a "Connect GitHub Copilot" button | Your own deployment: the profile follows you, not the server |
+| **B. Service token** | One account's Copilot plan (`COPILOT_GITHUB_TOKEN`) | Store the token as an App Service setting / Key Vault secret | Unattended use by one owner; usage is billed to that account |
+| **C. Bring your own model** | No Copilot seat: Azure AI Foundry / Azure OpenAI / OpenAI / Anthropic | `COPILOT_PROVIDER_*` variables, managed identity | Teams, production, central cost control |
+
+Everything else is configuration as code and is the same in all three: the skills ship in `skills/`, the Power BI MCP is attached per session (read-only guard), the model list is read from the runtime, and the readiness banner / `GET /api/copilot/status` shows what is missing. Scope of option A to verify when you create the OAuth App: the app requests `read:user` by default (override with `GITHUB_SCOPE` if Copilot rejects the token).
+
+## "Prebuilt environment in the GitHub cloud": what exists and what fits
+
+1. **Prebuilt container (recommended).** The `Dockerfile` bakes the app, the Copilot runtime (bundled with `@github/copilot-sdk`), the skills and the MCP configuration into one image; run it on Azure Container Apps / Web App for Containers / any host. It is the closest thing to "a prebuilt Copilot environment" that keeps the interactive UX. *Status: written from the SDK docs; not built here (no Docker on the dev machine), but the production-only dependency install and a start with the image's file set were verified.* GitHub documents a variant where the Copilot CLI runs separately in headless mode (`copilot --headless --port 4321`) and the app connects with `RuntimeConnection.forUri`; there is no official CLI image, you build your own.
+2. **GitHub Copilot cloud agent** (runs on GitHub Actions or in a cloud sandbox). You *can* prebuild its environment (`.github/workflows/copilot-setup-steps.yml`, secrets and variables for the agent, a custom environment on your own Linux machine or codespace) and ship skills/custom agents in the repo. **It is not a good fit for this tool**: it is repository/pull-request centric and asynchronous (a task produces a PR), it runs under a GitHub-managed identity, and the checks must run **as the signed-in user** against their Fabric/Power BI model; the cloud agent would need a service principal and could not provide the interactive page, live progress, diff review or per-item runs. Reasonable only for scheduled, unattended audits with a service principal.
+3. **Codespaces / dev containers** are development environments, not hosting.
+
+## Single-user caveats that stay true when deployed
+
+- The Microsoft sign-in and the GitHub sign-in are one server-side session each (this is intended for a single user). Do not expose the same instance to several people: they would share the first user's identities. For several users keep one session per user and acquire Fabric tokens on behalf of each user.
+- Runs are in memory; the container needs one replica (or sticky sessions) and runs vanish on restart.
+- The runtime uses the SDK default mode (`copilot-cli`) with a strict tool allow-list and a read-only permission guard. For a **shared** server GitHub recommends `mode: "empty"` plus explicit tools per session; adopt it before multi-user use.
+
+
 ## What the app needs at runtime
 
 | Need | How it is provided | Where checked |
@@ -15,6 +40,7 @@ Preflight: on start the server logs `Preflight OK: N model(s) available, skills 
 ## Authentication modes (environment variables)
 
 1. **Local (default)** - uses the Copilot / `gh` login of the machine. Fine for a developer, **not for a server**.
+1b. **`github-user`** - the user clicks **Connect GitHub Copilot** (GitHub device flow, needs `GITHUB_CLIENT_ID`); the app then uses that user's own Copilot plan and the runtime ignores the host login.
 2. **`github-token`** - set `COPILOT_GITHUB_TOKEN`. The runtime ignores the host login and uses this token. The token owner needs a Copilot license; all usage is billed to that identity.
 3. **`byok` (bring your own model, no Copilot seat)** - Azure AI Foundry / Azure OpenAI / OpenAI / Anthropic:
    ```

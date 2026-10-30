@@ -100,8 +100,25 @@ async function loadCopilot(force) {
   sel.innerHTML = `<option value="">${s.defaultModel ? `Default (${esc(s.defaultModel)})` : 'Default (chosen by Copilot)'}</option>` +
     models.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}${m.premium != null ? ` · x${m.premium}` : ''}${m.reasoning ? ' · reasoning' : ''}</option>`).join('');
   sel.value = models.some((m) => m.id === saved) ? saved : '';
-  $('modelinfo').textContent = `(${s.mode === 'byok' ? 'your own model provider' : s.mode === 'github-token' ? 'GitHub Copilot via service token' : 'GitHub Copilot on this machine'}${s.auth?.login ? `, ${s.auth.login}` : ''})`;
-  $('copilotbanner').innerHTML = s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+  $('modelinfo').textContent = `(${{ byok: 'your own model provider', 'github-token': 'GitHub Copilot via service token', 'github-user': `GitHub Copilot as ${s.github?.user?.login || 'you'}`, local: 'GitHub Copilot on this machine' }[s.mode] || s.mode}${s.auth?.login && s.mode !== 'github-user' ? `, ${s.auth.login}` : ''})`;
+  const gh = s.github || {};
+  const ghBtn = gh.available ? (gh.signedIn ? ' <a href="#" id="ghout">disconnect GitHub</a>' : ' <button id="ghconnect" class="mini">Connect GitHub Copilot</button> <span id="ghcode"></span>') : '';
+  $('copilotbanner').innerHTML = (s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`) + (s.ready && !gh.available ? '' : `<p class="sub">${gh.available ? 'GitHub account:' : ''}${ghBtn}</p>`);
+  if ($('ghconnect')) $('ghconnect').onclick = connectGithub;
+  if ($('ghout')) $('ghout').onclick = async (e) => { e.preventDefault(); await fetch('/api/github/logout', { method: 'POST' }); loadCopilot(true); };
+}
+async function connectGithub() {
+  $('ghconnect').disabled = true;
+  const r = await fetch('/api/github/login', { method: 'POST' });
+  const b = await r.json();
+  if (!r.ok) { $('ghcode').className = 'err'; $('ghcode').textContent = b.error; $('ghconnect').disabled = false; return; }
+  $('ghcode').innerHTML = `Open <a href="${esc(b.verificationUri)}" target="_blank">${esc(b.verificationUri)}</a> and enter <b style="font-size:1.2rem">${esc(b.userCode)}</b>`;
+  window.open(b.verificationUri, '_blank');
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/github/status')).json();
+    if (s.signedIn) { clearInterval(poll); loadCopilot(true); }
+    else if (s.error) { clearInterval(poll); $('ghcode').className = 'err'; $('ghcode').textContent = s.error; $('ghconnect').disabled = false; }
+  }, 2500);
 }
 $('modelsel').onchange = () => { localStorage.setItem('model', $('modelsel').value); runId = null; results = {}; links(); render(); $('status').textContent = 'Model changed: load the model again to use it.'; };
 $('modelrefresh').onclick = (e) => { e.preventDefault(); loadCopilot(true); };

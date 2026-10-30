@@ -1,0 +1,21 @@
+# Local run of the prebuilt image (untested): docker compose up --build
+# Pick ONE Copilot identity option; leave the others empty.
+services:
+  checklist-agent:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # 1) Your own Copilot plan through the in-app "Connect GitHub Copilot" button (GitHub OAuth App with Device Flow enabled)
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      # 2) or a service/user token that has a Copilot license
+      COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
+      # 3) or bring your own model (no Copilot seat), e.g. Azure OpenAI / Foundry
+      COPILOT_PROVIDER_TYPE: ${COPILOT_PROVIDER_TYPE:-}
+      COPILOT_PROVIDER_BASE_URL: ${COPILOT_PROVIDER_BASE_URL:-}
+      COPILOT_PROVIDER_API_KEY: ${COPILOT_PROVIDER_API_KEY:-}
+      COPILOT_BYOK_MODELS: ${COPILOT_BYOK_MODELS:-}
+    volumes:
+      - copilot-data:/data
+volumes:
+  copilot-data:
