@@ -103,7 +103,7 @@ async function loadCopilot(force) {
   $('modelinfo').textContent = `(${{ byok: 'your own model provider', 'github-token': 'GitHub Copilot via service token', 'github-user': `GitHub Copilot as ${s.github?.user?.login || 'you'}`, local: 'GitHub Copilot on this machine' }[s.mode] || s.mode}${s.auth?.login && s.mode !== 'github-user' ? `, ${s.auth.login}` : ''})`;
   const gh = s.github || {};
   const ghBtn = gh.available ? (gh.signedIn ? ' <a href="#" id="ghout">disconnect GitHub</a>' : ' <button id="ghconnect" class="mini">Connect GitHub Copilot</button> <span id="ghcode"></span>') : '';
-  $('copilotbanner').innerHTML = (s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`) + (s.ready && !gh.available ? '' : `<p class="sub">${gh.available ? 'GitHub account:' : ''}${ghBtn}</p>`);
+  $('copilotbanner').innerHTML = (s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`) + (gh.available ? `<p class="sub">GitHub account:${ghBtn}</p>` : s.mode === 'local' ? '<p class="sub">Using this machine\'s Copilot login. To use your own GitHub account on a deployed app, set <code>GITHUB_CLIENT_ID</code> (GitHub OAuth App with Device Flow enabled) and a "Connect GitHub Copilot" button appears. See docs/deployment.md.</p>' : '');
   if ($('ghconnect')) $('ghconnect').onclick = connectGithub;
   if ($('ghout')) $('ghout').onclick = async (e) => { e.preventDefault(); await fetch('/api/github/logout', { method: 'POST' }); loadCopilot(true); };
 }
