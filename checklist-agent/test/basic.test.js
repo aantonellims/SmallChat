@@ -138,6 +138,47 @@ test('GitHub device flow signs in with a mocked GitHub', async () => {
   delete process.env.GITHUB_CLIENT_ID;
 });
 
+test('CLI device-code sign-in (no OAuth App needed) with a fake Copilot CLI', async () => {
+  const { mkdtempSync, writeFileSync, existsSync } = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cli-login-'));
+  const fake = path.join(dir, 'fake-copilot.js');
+  writeFileSync(fake, `
+    const [cmd] = process.argv.slice(2);
+    if (cmd === 'login') {
+      console.log('To authenticate, visit https://github.com/login/device and enter code ABCD-1234');
+      console.log('Waiting for authorization...');
+      setTimeout(() => process.exit(0), 300);
+    } else process.exit(0);
+  `);
+  process.env.COPILOT_CLI_PATH = fake;
+  process.env.COPILOT_APP_HOME = path.join(dir, 'home');
+  delete process.env.GITHUB_CLIENT_ID;
+  process.env.GH_TOKEN = 'must-not-leak-to-cli';
+  const gh = await import('../src/githubAuth.js');
+  const { copilotConfig } = await import('../src/copilotEnv.js');
+
+  assert.equal(gh.githubAvailableMethod(), 'cli');
+  assert.equal(gh.githubStatus().signedIn, false);
+  const start = await gh.startGithubLogin();
+  assert.deepEqual([start.userCode, start.verificationUri, start.method], ['ABCD-1234', 'https://github.com/login/device', 'cli']);
+  for (let i = 0; i < 100 && !gh.githubStatus().signedIn; i++) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(gh.githubStatus().signedIn, true);
+  assert.ok(existsSync(path.join(dir, 'home', '.cli-login')));
+
+  const c = copilotConfig({ COPILOT_APP_HOME: process.env.COPILOT_APP_HOME }, { cli: true });
+  assert.equal(c.mode, 'github-user');
+  assert.equal(c.clientOptions.gitHubToken, undefined);
+  assert.equal(c.clientOptions.baseDirectory, process.env.COPILOT_APP_HOME);
+
+  gh.githubLogout();
+  assert.equal(gh.githubStatus().signedIn, false);
+  delete process.env.COPILOT_CLI_PATH;
+  delete process.env.COPILOT_APP_HOME;
+  delete process.env.GH_TOKEN;
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

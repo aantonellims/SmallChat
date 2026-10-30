@@ -75,8 +75,9 @@ app.post('/api/github/login', async (_req, res) => {
 let ghSeen = null;
 app.get('/api/github/status', (_req, res) => {
   const s = githubStatus();
-  if (s.signedIn && ghSeen !== s.user?.login) {
-    ghSeen = s.user?.login ?? null;
+  const key = s.signedIn ? (s.user?.login ?? 'signed-in') : null;
+  if (key && ghSeen !== key) {
+    ghSeen = key;
     statusCache = { at: 0, value: null, pending: null }; // new identity: re-check models and auth
   }
   res.json(s);

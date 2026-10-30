@@ -6,13 +6,25 @@ On a web app there is no developer machine login, so you choose the identity exp
 
 | Option | Copilot identity | Setup | Best for |
 |---|---|---|---|
-| **A. "Connect GitHub Copilot" (in-app)** | The signed-in user's **own** Copilot plan (GitHub OAuth device flow, `github-user` mode) | Create a GitHub OAuth App, tick **Enable Device Flow**, set `GITHUB_CLIENT_ID`. The page then shows a "Connect GitHub Copilot" button | Your own deployment: the profile follows you, not the server |
+| **A. "Connect GitHub Copilot" (in-app, no setup)** | The signed-in user's **own** Copilot plan (`github-user` mode) | Nothing to configure: the button runs the Copilot CLI's device-code sign-in (GitHub's own app) in the app's isolated Copilot home; the user types a code on github.com/login/device. Optional alternative: your own OAuth App via `GITHUB_CLIENT_ID` | Your own deployment: the profile follows you, not the server |
 | **B. Service token** | One account's Copilot plan (`COPILOT_GITHUB_TOKEN`) | Store the token as an App Service setting / Key Vault secret | Unattended use by one owner; usage is billed to that account |
 | **C. Bring your own model** | No Copilot seat: Azure AI Foundry / Azure OpenAI / OpenAI / Anthropic | `COPILOT_PROVIDER_*` variables, managed identity | Teams, production, central cost control |
 
-Everything else is configuration as code and is the same in all three: the skills ship in `skills/`, the Power BI MCP is attached per session (read-only guard), the model list is read from the runtime, and the readiness banner / `GET /api/copilot/status` shows what is missing. Scope of option A to verify when you create the OAuth App: the app requests `read:user` by default (override with `GITHUB_SCOPE` if Copilot rejects the token).
+Everything else is configuration as code and is the same in all three: the skills ship in `skills/`, the Power BI MCP is attached per session (read-only guard), the model list is read from the runtime, and the readiness banner / `GET /api/copilot/status` shows what is missing.
 
-**Creating the OAuth App for option A (about 1 minute, GitHub does not offer an API for this).** GitHub, Settings, Developer settings, OAuth Apps, New OAuth App:
+## What is onboarded with the app (nothing is read from the developer's machine)
+
+| Piece | Where it lives | Reaches the agent via | Verified |
+|---|---|---|---|
+| Skills `semantic-model-review`, `powerbi-modeling` (MIT, from awesome-copilot) | `skills/` inside the app/image | `skillDirectories` on every session | A run from an empty isolated Copilot home loaded the skill |
+| Power BI authoring MCP | `src/agent.js` (URL in `PBI_MCP_URL`), per-session `mcpServers` with the signed-in user's Fabric token | session config | Same run connected and ran DAX through it |
+| Checklist, per-item prompts, system prompts, read-only guard | `checklist*.md`, `src/prompts.js`, `src/agent.js` | code | tests |
+| Copilot runtime + data dir | bundled by `@github/copilot-sdk`; data in `COPILOT_APP_HOME` (`.copilot-home`) | `baseDirectory` | the clean-home run created its own runtime files only |
+| Copilot CLI (for the in-app GitHub sign-in) | npm dependency `@github/copilot` | spawned by the sign-in button | sign-in code obtained from the real CLI |
+
+What is **not** carried over from your machine, on purpose: your personal MCP servers and plugins in `~/.copilot`, and your Copilot login. In `github-token`, `github-user` and `byok` modes the runtime runs from its own isolated home, so anything the agent needs must be in the table above. If you add a skill or MCP, add it to `skills/` or the session config (and the allow-list), not to the host. Scope of option A to verify when you create the OAuth App: the app requests `read:user` by default (override with `GITHUB_SCOPE` if Copilot rejects the token).
+
+**Optional: your own OAuth App instead of the CLI sign-in (not needed).** Only if you prefer GitHub's OAuth device flow with your own app (GitHub has no API for this): GitHub, Settings, Developer settings, OAuth Apps, New OAuth App:
 
 | Field | Value |
 |---|---|

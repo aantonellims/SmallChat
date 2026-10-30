@@ -3,7 +3,7 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { githubToken, githubStatus } from './githubAuth.js';
+import { githubToken, githubStatus, githubCliLoggedIn, appHome } from './githubAuth.js';
 
 const APP_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SKILLS_DIR = path.join(APP_DIR, 'skills');
@@ -17,17 +17,19 @@ const REQUIRED_SKILLS = ['semantic-model-review', 'powerbi-modeling'];
 //   byok                : COPILOT_PROVIDER_TYPE=azure|openai|anthropic + COPILOT_PROVIDER_BASE_URL
 //                         + COPILOT_PROVIDER_API_KEY, or COPILOT_PROVIDER_AUTH=managed-identity (Azure AI Foundry / Azure OpenAI, no Copilot seat)
 //                         + COPILOT_BYOK_MODELS=deployment1,deployment2 (the models users can pick)
-export function copilotConfig(env = process.env, signedInToken = undefined) {
+export function copilotConfig(env = process.env, signedIn = undefined) {
+  // signedIn: an access token string, or { token?, cli? } where cli = signed in with the Copilot CLI device flow into the app's own home.
+  const gh = typeof signedIn === 'string' ? { token: signedIn } : signedIn || {};
   const baseUrl = env.COPILOT_PROVIDER_BASE_URL;
   const byok = !!(env.COPILOT_PROVIDER_TYPE && baseUrl);
-  const token = env.COPILOT_GITHUB_TOKEN || signedInToken;
-  const mode = byok ? 'byok' : env.COPILOT_GITHUB_TOKEN ? 'github-token' : signedInToken ? 'github-user' : 'local';
+  const token = env.COPILOT_GITHUB_TOKEN || gh.token;
+  const mode = byok ? 'byok' : env.COPILOT_GITHUB_TOKEN ? 'github-token' : gh.token || gh.cli ? 'github-user' : 'local';
   // Deployed modes must not depend on (or leak) the host's ~/.copilot (user MCP servers, plugins, login).
-  const baseDirectory = env.COPILOT_APP_HOME || (mode === 'local' ? undefined : path.join(APP_DIR, '.copilot-home'));
+  const baseDirectory = env.COPILOT_APP_HOME || (mode === 'local' ? undefined : appHome(env));
   const models = (env.COPILOT_BYOK_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
 
   const clientOptions = { ...(baseDirectory ? { baseDirectory } : {}) };
-  if (mode === 'github-token' || mode === 'github-user') Object.assign(clientOptions, { gitHubToken: token, useLoggedInUser: false });
+  if (mode === 'github-token' || (mode === 'github-user' && token)) Object.assign(clientOptions, { gitHubToken: token, useLoggedInUser: false });
   if (mode === 'byok') {
     clientOptions.useLoggedInUser = false;
     clientOptions.onListModels = () => models.map((id) => ({ id, name: id, capabilities: {} }));
@@ -47,7 +49,7 @@ export function copilotConfig(env = process.env, signedInToken = undefined) {
 }
 
 // Re-evaluated on every use so signing in/out of GitHub takes effect immediately.
-export const currentConfig = () => copilotConfig(process.env, githubToken());
+export const currentConfig = () => copilotConfig(process.env, { token: githubToken(), cli: githubCliLoggedIn() });
 
 export function createCopilotClient() {
   return new CopilotClient(currentConfig().clientOptions);
