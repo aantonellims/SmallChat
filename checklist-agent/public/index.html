@@ -30,7 +30,17 @@
   .tech { margin-top: 1rem; color: #555; font-size: .9em } .tech summary { cursor: pointer; color: #0f6cbd }
   pre { background: #f3f3f3; padding: .7rem; overflow: auto; border-radius: 6px } code { background: #f3f3f3; padding: 0 .2rem; border-radius: 4px }
 </style>
-<link rel="stylesheet" href="/diff.css" />
+<script>
+// API base: empty when this page is served by the agent server itself; set (?api=https://host) when the page is hosted elsewhere (e.g. a Rayfin app).
+const API = (new URLSearchParams(location.search).get('api') || '').replace(/\/$/, '');
+if (API) {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (u, o) => nativeFetch(typeof u === 'string' && u.startsWith('/') ? API + u : u, o);
+  const NativeES = window.EventSource;
+  window.EventSource = class extends NativeES { constructor(u, o) { super(typeof u === 'string' && u.startsWith('/') ? API + u : u, o); } };
+}
+const diffCss = document.createElement('link'); diffCss.rel = 'stylesheet'; diffCss.href = API + '/diff.css'; document.head.appendChild(diffCss);
+</script>
 <style>
   #fixview { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 20 }
   #fixview.open { display: block }
@@ -214,7 +224,7 @@ async function previewFix(id) {
     }
     if (f.state === 'error') return fail(f.error);
     if (f.noFix) { $('fixbody').innerHTML = `<div class="notice"><b>No automatic change available.</b> ${esc(f.noFix)}<br>Follow the "What to do" steps manually.</div>`; return; }
-    $('fixlinks').innerHTML = `<a class="btnlink" href="/api/runs/${runId}/items/${id}/fix.patch">⬇ Download .patch</a> <a class="btnlink sec" href="/api/runs/${runId}/items/${id}/fix.zip">⬇ Patched files (.zip)</a>`;
+    $('fixlinks').innerHTML = `<a class="btnlink" href="${API}/api/runs/${runId}/items/${id}/fix.patch">⬇ Download .patch</a> <a class="btnlink sec" href="${API}/api/runs/${runId}/items/${id}/fix.zip">⬇ Patched files (.zip)</a>`;
     $('fixbody').innerHTML = `<p><b>${esc(f.summary)}</b></p>
 <p class="sub">${f.stats.files} file(s) changed · <span style="color:#1a7f37">+${f.stats.added}</span> <span style="color:#cf222e">-${f.stats.removed}</span></p>
 <div class="notice">Preview only. Nothing has been changed in your semantic model. Review the colored lines (green = added, red = removed), then apply the change yourself (e.g. paste into the model's TMDL view or deploy the patched files).</div>
@@ -227,7 +237,7 @@ $('close').onclick = () => $('drawer').classList.remove('open');
 
 function links() {
   $('toolbar').hidden = !runId;
-  if (runId) { $('reportlink').href = `/runs/${runId}/report`; $('dl').href = `/api/runs/${runId}/report`; $('dl').download = 'semantic-model-report.md'; }
+  if (runId) { $('reportlink').href = `${API}/runs/${runId}/report`; $('dl').href = `${API}/api/runs/${runId}/report`; $('dl').download = 'semantic-model-report.md'; }
 }
 function setBusy(b) { busy = b; $('runall').disabled = $('runsel').disabled = $('go').disabled = $('load').disabled = b; render(); }
 

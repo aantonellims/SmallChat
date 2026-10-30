@@ -209,6 +209,29 @@ test('CLI browser sign-in (web flow) is chosen for local use and parsed from the
   delete process.env.COPILOT_APP_HOME;
 });
 
+test('CORS only for allowed origins, including private-network preflight', async () => {
+  const { spawn } = await import('node:child_process');
+  const port = 3951;
+  const env = { ...process.env, PORT: String(port), AUTH_MODE: 'az', ALLOWED_ORIGINS: 'https://app.example.com,*.fabric.example.net', COPILOT_APP_HOME: '', };
+  const proc = spawn(process.execPath, ['src/server.js'], { env, stdio: 'ignore' });
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    for (let i = 0; i < 60; i++) { try { await fetch(`${base}/api/me`); break; } catch { await new Promise((r) => setTimeout(r, 500)); } }
+    const pre = await fetch(`${base}/api/runs`, { method: 'OPTIONS', headers: { Origin: 'https://app.example.com', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Private-Network': 'true' } });
+    assert.equal(pre.status, 204);
+    assert.equal(pre.headers.get('access-control-allow-origin'), 'https://app.example.com');
+    assert.equal(pre.headers.get('access-control-allow-private-network'), 'true');
+    const sfx = await fetch(`${base}/api/me`, { headers: { Origin: 'https://x.fabric.example.net' } });
+    assert.equal(sfx.headers.get('access-control-allow-origin'), 'https://x.fabric.example.net');
+    const bad = await fetch(`${base}/api/runs`, { method: 'OPTIONS', headers: { Origin: 'https://evil.example.org' } });
+    assert.equal(bad.status, 403);
+    const evilGet = await fetch(`${base}/api/me`, { headers: { Origin: 'https://evil.example.org' } });
+    assert.equal(evilGet.headers.get('access-control-allow-origin'), null);
+  } finally {
+    proc.kill();
+  }
+});
+
 test('parseModelUrl handles datasets and semanticmodels URLs', () => {
   const ws = '11111111-1111-1111-1111-111111111111';
   const id = '22222222-2222-2222-2222-222222222222';

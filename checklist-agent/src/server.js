@@ -18,6 +18,28 @@ const authStatus = () => (azMode ? { signedIn: true, user: { name: 'Azure CLI se
 const tokenProvider = azMode ? azCliTokenProvider() : interactiveTokenProvider();
 
 const app = express();
+
+// CORS for a UI hosted on another origin (e.g. a Rayfin app). Only origins listed in ALLOWED_ORIGINS get access;
+// entries may be exact origins or "*.example.com" suffixes. Private-network preflights are answered for public pages calling a local server.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const originAllowed = (origin) => allowedOrigins.some((a) => (a.startsWith('*.') ? origin.endsWith(a.slice(1)) && origin.startsWith('https://') : a === origin));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && originAllowed(origin)) {
+    res.set({
+      'Access-Control-Allow-Origin': origin,
+      Vary: 'Origin',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': req.headers['access-control-request-headers'] || 'Content-Type',
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+    if (req.headers['access-control-request-private-network']) res.set('Access-Control-Allow-Private-Network', 'true');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  } else if (req.method === 'OPTIONS' && origin) {
+    return res.sendStatus(403);
+  }
+  next();
+});
 app.use(express.json());
 app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public')));
 
