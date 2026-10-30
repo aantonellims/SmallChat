@@ -52,7 +52,11 @@ npm start
 # macOS / Linux
 ALLOWED_ORIGINS=https://<hosting-url> npm start
 ```
-Leave this window open while you use the app. `ALLOWED_ORIGINS` just tells the agent "accept requests coming from my Fabric app page"; without it the browser blocks the page from talking to the agent. The page looks for the agent at `http://localhost:3000`, so run it on the same computer as your browser. To host the agent on a server instead, set `VITE_CHECKLIST_API_URL=https://<agent-url>` in `rayfin-app/packages/frontend/.env.production` before step 2.
+Leave this window open while you use the app. `ALLOWED_ORIGINS` tells the agent to accept requests coming from your Fabric app page; without it the browser blocks them.
+
+**Where must the agent run?** Out of the box, the deployed page looks for the agent on your own computer (`http://localhost:3000`). So just run step 6 on the computer where you open the app; nothing else to configure.
+
+*Advanced (optional):* to run the agent on a server so several computers can use it, put the server address in `rayfin-app/packages/frontend/.env.production` (`VITE_CHECKLIST_API_URL=https://<server-address>`) **before step 2**, and use that same address as the host when starting the agent there. See [`docs/deployment.md`](docs/deployment.md).
 
 **7. Open the app** from the Fabric portal (or the hosting URL), sign in to Fabric, and follow *Getting started* below.
 
