@@ -6,22 +6,37 @@ Paste a Power BI / Fabric semantic model URL. A GitHub Copilot agent runs a **re
 - The agent reads the model through the hosted **Power BI authoring MCP** with *your* Fabric token. It is read-only (a permission guard rejects every write).
 - The two **Data Agent** sections only appear if you also paste the URL of an existing Data Agent.
 
-## Quick start (local)
+## Deploy to Rayfin (Fabric App)
 
-Prerequisites: Node 20+, a GitHub Copilot plan (signed in with `copilot` or `gh auth login`), access to the semantic model (**Read + Write** permission is needed to read its definition).
+The **UI** runs as a Rayfin app (behind Fabric sign-in); the **agent API** (Node + Copilot SDK) cannot run inside Rayfin and stays a normal Node service. Details and limits: [`docs/rayfin.md`](docs/rayfin.md); server/identity options (env vars, Copilot token, BYOK): [`docs/deployment.md`](docs/deployment.md).
 
 ```bash
-npm install
-npm start            # http://localhost:3000
+# 1. Point the UI at your agent API (default http://localhost:3000, i.e. your own machine)
+#    edit rayfin-app/packages/frontend/.env.production  ->  VITE_CHECKLIST_API_URL=https://<your-agent-api>
+
+# 2. Build the Rayfin app with the current UI
+npm run rayfin:sync
+cd rayfin-app
+npm ci
+npm run build
+
+# 3. Sign in and preview (read-only), then deploy
+npx rayfin login
+npx rayfin up -n --workspace-id <workspace-guid>
+npx rayfin up --workspace-id <workspace-guid> --item-name semantic-model-checklist-agent
 ```
 
-1. Open http://localhost:3000, **Sign in with Microsoft** (device code; tenant ID, domain or email accepted).
-2. Paste the semantic model URL (`https://app.powerbi.com/groups/<workspaceId>/datasets/<modelId>`, also `/semanticmodels/` or `/modeling/`), then **Load model**.
-3. **Run full checklist**, or run one section / selected items / a single item with the ▶ buttons. Click a row for details, **Open full report** for the report page, **Preview fix** (on fixable findings) for a colored diff with `.patch` / ZIP download. Nothing is ever written to the model.
+No workspace yet? `npx rayfin up --capacity-id <capacity-guid>` prepares a new workspace on that capacity. The deploy prints the **hosting URL**; then start the agent API allowing that origin:
 
-Pick the model the agent uses in the dropdown (the list comes from your Copilot plan). Other useful commands: `npm test`, `node scripts/run.js "<model url>" report.md` (no UI), `node scripts/run-items.js "<model url>" i64,i09`.
+```bash
+ALLOWED_ORIGINS=https://<hosting-url> npm start          # PowerShell: $env:ALLOWED_ORIGINS='https://<hosting-url>'; npm start
+```
+
+Open the app from the Fabric portal (or the hosting URL), sign in to Fabric, and the checklist page loads. Redeploy after UI changes with `npm run rayfin:sync` then `cd rayfin-app && npx rayfin up --workspace-id <workspace-guid>`.
 
 ## Getting started (screenshots)
+
+Once deployed, open the app and follow these steps.
 
 > Screenshots use sample data (no customer model). Codes shown are examples; yours will differ.
 
@@ -63,48 +78,6 @@ On fixable findings, **Preview fix** shows a colored diff of the change on an in
 
 (Regenerate screenshots with `node scripts/screenshots.js`.)
 
-## Deploy to Rayfin (Fabric App)
-
-The **UI** runs as a Rayfin app (behind Fabric sign-in); the **agent API** (Node + Copilot SDK) cannot run inside Rayfin and stays a normal Node service. Details and limits: [`docs/rayfin.md`](docs/rayfin.md).
-
-```bash
-# 1. Point the UI at your agent API (default http://localhost:3000, i.e. your own machine)
-#    edit rayfin-app/packages/frontend/.env.production  ->  VITE_CHECKLIST_API_URL=https://<your-agent-api>
-
-# 2. Build the Rayfin app with the current UI
-npm run rayfin:sync
-cd rayfin-app
-npm ci
-npm run build
-
-# 3. Sign in and preview (read-only), then deploy
-npx rayfin login
-npx rayfin up -n --workspace-id <workspace-guid>
-npx rayfin up --workspace-id <workspace-guid> --item-name semantic-model-checklist-agent
-```
-
-No workspace yet? `npx rayfin up --capacity-id <capacity-guid>` prepares a new workspace on that capacity (documented by Rayfin; I created ours through the Fabric API instead). The deploy prints the **hosting URL**; then start the agent API allowing that origin:
-
-```bash
-ALLOWED_ORIGINS=https://<hosting-url> npm start          # PowerShell: $env:ALLOWED_ORIGINS='https://<hosting-url>'; npm start
-```
-
-Open the app from the Fabric portal (or the hosting URL), sign in to Fabric, and the checklist page loads. Redeploy after UI changes with `npm run rayfin:sync` then `cd rayfin-app && npx rayfin up --workspace-id <workspace-guid>`.
-
-## Deploy the agent API (Azure Web App / container)
-
-On a server there is no developer login, so choose the Copilot identity: the app owner's profile (service token `COPILOT_GITHUB_TOKEN`), an in-app GitHub sign-in, or your own model (Azure AI Foundry / OpenAI, no Copilot seat). A `Dockerfile` bundles the app, skills and MCP setup (not yet built in CI). Full guide: [`docs/deployment.md`](docs/deployment.md).
-
-| Variable | Purpose |
-|---|---|
-| `PORT`, `HOST` | listen port / address (`HOST=0.0.0.0` on a web app) |
-| `ALLOWED_ORIGINS` | origins allowed to call the API (Rayfin hosting URL); comma-separated, `*.example.com` supported |
-| `COPILOT_GITHUB_TOKEN` | Copilot identity for a server (token of an account with Copilot) |
-| `COPILOT_PROVIDER_TYPE`, `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY` or `COPILOT_PROVIDER_AUTH=managed-identity`, `COPILOT_BYOK_MODELS` | bring your own model |
-| `COPILOT_MODEL`, `COPILOT_APP_HOME`, `PBI_MCP_URL`, `GITHUB_CLIENT_ID` | default model, Copilot data dir, MCP URL, optional GitHub OAuth App |
-
-Check readiness at `GET /api/copilot/status` (also shown as a banner in the UI): Copilot auth, selectable models, skills found, MCP reachable.
-
 ## How it works
 
 - `src/agent.js`: one Copilot session per checklist section with (1) the Power BI authoring MCP, (2) read-only TMDL tools, (3) the `semantic-model-review` and `powerbi-modeling` skills in `skills/`, (4) a specific prompt per item (`src/prompts.js`). Each item gets a verdict (`pass | warn | fail | manual | not_applicable`), a one-line finding, "What to do" bullets and collapsed technical details. A final session writes the executive summary.
@@ -119,5 +92,16 @@ Check readiness at `GET /api/copilot/status` (also shown as a banner in the UI):
 - Prep for AI settings (AI schema, verified answers, instructions) may not be exposed by the definition or MCP; those items are then reported as `manual` rather than `fail`.
 - The Rayfin deployment was verified at the HTTP level (status, protected hosting, CORS); a signed-in browser check needs an interactive Fabric sign-in.
 - The Docker image has not been built here.
+
+## Run locally (optional)
+
+Prerequisites: Node 20+, a GitHub Copilot plan (signed in with `copilot` or `gh auth login`), access to the semantic model (**Read + Write** permission is needed to read its definition).
+
+```bash
+npm install
+npm start            # http://localhost:3000
+```
+
+Open http://localhost:3000 and follow the steps in *Getting started* above. Pick the agent's model in the dropdown (the list comes from your Copilot plan). Other commands: `npm test`, `node scripts/run.js "<model url>" report.md` (no UI), `node scripts/run-items.js "<model url>" i64,i09`.
 
 More: [`docs/ux-and-fix-preview.md`](docs/ux-and-fix-preview.md) (UX and fix-preview brief), [`docs/deployment.md`](docs/deployment.md), [`docs/rayfin.md`](docs/rayfin.md).
