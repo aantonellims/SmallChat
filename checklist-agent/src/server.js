@@ -2,6 +2,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { loadChecklist } from './checklist.js';
 import { parseModelUrl, parseDataAgentUrl, fetchItemDefinition, SemanticModelClient } from './fabric.js';
 import { runChecklist, runFix, renderReport } from './agent.js';
@@ -21,7 +22,8 @@ const app = express();
 
 // CORS for a UI hosted on another origin (e.g. a Rayfin app). Only origins listed in ALLOWED_ORIGINS get access;
 // entries may be exact origins or "*.example.com" suffixes. Private-network preflights are answered for public pages calling a local server.
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const savedHostingUrl = (() => { try { return readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.hosting-url'), 'utf8').trim(); } catch { return ''; } })();
+const allowedOrigins = [process.env.ALLOWED_ORIGINS || '', savedHostingUrl].join(',').split(',').map((s) => s.trim()).filter(Boolean);
 const originAllowed = (origin) => allowedOrigins.some((a) => (a.startsWith('*.') ? origin.endsWith(a.slice(1)) && origin.startsWith('https://') : a === origin));
 app.use((req, res, next) => {
   const origin = req.headers.origin;

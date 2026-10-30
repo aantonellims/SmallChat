@@ -1,5 +1,6 @@
 node_modules/
 .env
 .copilot-home/
+.hosting-url
 *.log
 report*.md

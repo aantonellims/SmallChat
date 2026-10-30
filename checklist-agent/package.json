@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "rayfin:sync": "node scripts/sync-rayfin-ui.js",
+    "deploy": "node scripts/deploy.js",
     "test": "node --test \"test/*.test.js\""
   },
   "license": "MIT",
