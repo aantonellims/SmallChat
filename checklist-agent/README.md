@@ -8,31 +8,48 @@ Paste a Power BI / Fabric semantic model URL. A GitHub Copilot agent runs a **re
 
 ## Deploy to Rayfin (Fabric App)
 
-The **UI** runs as a Rayfin app (behind Fabric sign-in); the **agent API** (Node + Copilot SDK) cannot run inside Rayfin and stays a normal Node service. Details and limits: [`docs/rayfin.md`](docs/rayfin.md); server/identity options (env vars, Copilot token, BYOK): [`docs/deployment.md`](docs/deployment.md).
+The app has two parts: the **UI**, deployed as a Rayfin app in Fabric (behind Fabric sign-in), and the **agent** (Node + GitHub Copilot SDK), which cannot run inside Rayfin and is started as a small Node service (steps 5-6). More: [`docs/rayfin.md`](docs/rayfin.md), [`docs/deployment.md`](docs/deployment.md).
 
+**Prerequisites:** Node 20+, Git, a Fabric workspace on a capacity where you can create items (or a capacity ID), and a GitHub Copilot plan.
+
+**1. Clone the repo**
 ```bash
-# 1. Point the UI at your agent API (default http://localhost:3000, i.e. your own machine)
-#    edit rayfin-app/packages/frontend/.env.production  ->  VITE_CHECKLIST_API_URL=https://<your-agent-api>
+git clone https://github.com/aantonellims/semantic-model-checklist-agent.git
+cd semantic-model-checklist-agent
+npm install
+```
 
-# 2. Build the Rayfin app with the current UI
+**2. Build the Rayfin app** (the Rayfin CLI is installed locally with `npm ci`; nothing to install globally)
+```bash
 npm run rayfin:sync
 cd rayfin-app
 npm ci
 npm run build
+```
 
-# 3. Sign in and preview (read-only), then deploy
+**3. Sign in to Fabric**
+```bash
 npx rayfin login
+```
+
+**4. Deploy** with `npx rayfin up` (add `-n` first for a read-only preview)
+```bash
 npx rayfin up -n --workspace-id <workspace-guid>
 npx rayfin up --workspace-id <workspace-guid> --item-name semantic-model-checklist-agent
 ```
+No workspace yet? Use `npx rayfin up --capacity-id <capacity-guid>` to prepare a new one on that capacity. The command prints the **hosting URL** (`https://<name>.webapp.fabricapps.net`).
 
-No workspace yet? `npx rayfin up --capacity-id <capacity-guid>` prepares a new workspace on that capacity. The deploy prints the **hosting URL**; then start the agent API allowing that origin:
+**5. Sign in to GitHub Copilot** on the machine that runs the agent (once, from the repo root: `cd ..`): `npx copilot login`, or `gh auth login`.
 
+**6. Start the agent**, allowing the hosting URL to call it (back in the repo root)
 ```bash
 ALLOWED_ORIGINS=https://<hosting-url> npm start          # PowerShell: $env:ALLOWED_ORIGINS='https://<hosting-url>'; npm start
 ```
+By default the UI talks to `http://localhost:3000`, so the agent runs on the same machine as your browser. To host the agent elsewhere, set `VITE_CHECKLIST_API_URL=https://<agent-url>` in `rayfin-app/packages/frontend/.env.production` before step 2.
 
-Open the app from the Fabric portal (or the hosting URL), sign in to Fabric, and the checklist page loads. Redeploy after UI changes with `npm run rayfin:sync` then `cd rayfin-app && npx rayfin up --workspace-id <workspace-guid>`.
+**7. Open the app** from the Fabric portal (or the hosting URL), sign in to Fabric, and follow *Getting started* below.
+
+Redeploy after UI changes: `npm run rayfin:sync`, then in `rayfin-app`: `npm run build` and `npx rayfin up --workspace-id <workspace-guid>`.
 
 ## Getting started (screenshots)
 
