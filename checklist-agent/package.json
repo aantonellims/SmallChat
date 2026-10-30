@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "rayfin:sync": "node scripts/sync-rayfin-ui.js",
     "test": "node --test \"test/*.test.js\""
   },
   "license": "MIT",
@@ -19,6 +20,7 @@
     "marked": "^18.1.1"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "playwright-core": "^1.64.1"
   }
 }

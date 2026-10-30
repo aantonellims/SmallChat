@@ -290,7 +290,8 @@ app.delete('/api/runs/:id', (req, res) => {
 const port = Number(process.env.PORT || 3000);
 app.listen(port, process.env.HOST || '127.0.0.1', () => {
   console.log(`Checklist agent on http://localhost:${port} (Copilot mode: ${currentConfig().mode})`);
-  // Preflight: tell the operator immediately if Copilot/skills/MCP are not usable.
+  // Preflight: tell the operator immediately if Copilot/skills/MCP are not usable (COPILOT_PREFLIGHT=0 skips it).
+  if (process.env.COPILOT_PREFLIGHT === '0') return;
   getCopilotStatus().then((s) => {
     console.log(s.ready ? `Preflight OK: ${s.models.length} model(s) available, skills and MCP found.` : `Preflight problems:\n - ${s.problems.join('\n - ')}`);
   }).catch((e) => console.log(`Preflight failed: ${e.message}`));

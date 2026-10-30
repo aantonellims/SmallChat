@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Semantic Model Checklist Agent</title>
+<style>
+  body { font: 15px/1.5 Segoe UI, system-ui, sans-serif; margin: 0; color: #1b1b1b; background: #fafafa }
+  header { background: #0f2b46; color: #fff; padding: 1rem 2rem } header h1 { margin: 0; font-size: 1.3rem }
+  main { max-width: 1150px; margin: 1.2rem auto; padding: 0 1.5rem }
+  .sub { color: #555 } a { color: #0f6cbd }
+  form { display: flex; gap: .5rem; margin: 1rem 0 }
+  input[type=text], input:not([type]) { flex: 1; padding: .6rem; border: 1px solid #bbb; border-radius: 6px; font-size: 1rem }
+  button { padding: .5rem 1rem; border: 0; border-radius: 6px; background: #0f6cbd; color: #fff; font-size: .95rem; cursor: pointer }
+  button.sec { background: #fff; color: #0f6cbd; border: 1px solid #0f6cbd }
+  button.mini { padding: .15rem .55rem; font-size: .85rem } button:disabled { background: #aaa; border-color: #aaa; color: #fff; cursor: default }
+  #toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: .5rem 0 }
+  #status { color: #444; min-height: 1.4rem; margin: .3rem 0 } .err { color: #b00020 }
+  .chip { display: inline-block; padding: .1rem .6rem; border-radius: 99px; background: #fff; border: 1px solid #ddd; margin-right: .3rem }
+  h3 { margin: 1.4rem 0 .3rem; display: flex; align-items: center; gap: .6rem }
+  table { border-collapse: collapse; width: 100%; background: #fff }
+  td, th { border-bottom: 1px solid #e6e6e6; padding: .4rem .6rem; text-align: left; vertical-align: top }
+  th { background: #f3f3f3; font-weight: 600 } td.s { width: 1.8rem; text-align: center } td.c { width: 1.5rem } td.a { width: 4.5rem; text-align: right; white-space: nowrap }
+  tr.item { cursor: pointer } tr.item:hover { background: #f5f9ff } tr.crit td.t { font-weight: 600 } tr.pending td.t { color: #888 }
+  td.h { color: #444 }
+  #drawer { position: fixed; top: 0; right: 0; width: min(620px, 92vw); height: 100%; background: #fff; box-shadow: -4px 0 18px rgba(0,0,0,.2); padding: 1rem 1.4rem 2rem; overflow: auto; transform: translateX(100%); transition: transform .2s }
+  #drawer.open { transform: none } #drawer h4 { margin: 1rem 0 .2rem; color: #0f2b46 } #drawer ul, #drawer ol { padding-left: 1.3rem } #drawer li { margin: .3rem 0 }
+  #drawer table { border-collapse: collapse; margin: .5rem 0; font-size: .9em } #drawer td, #drawer th { border: 1px solid #ddd; padding: .25rem .5rem; text-align: left }
+  #drawer th { background: #f3f3f3 } #drawer p { margin: .4rem 0 }
+  .tech { margin-top: 1rem; color: #555; font-size: .9em } .tech summary { cursor: pointer; color: #0f6cbd }
+  pre { background: #f3f3f3; padding: .7rem; overflow: auto; border-radius: 6px } code { background: #f3f3f3; padding: 0 .2rem; border-radius: 4px }
+</style>
+<script>
+// API base: empty when this page is served by the agent server itself; set (?api=https://host) when the page is hosted elsewhere (e.g. a Rayfin app).
+const API = (new URLSearchParams(location.search).get('api') || '').replace(/\/$/, '');
+if (API) {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (u, o) => nativeFetch(typeof u === 'string' && u.startsWith('/') ? API + u : u, o);
+  const NativeES = window.EventSource;
+  window.EventSource = class extends NativeES { constructor(u, o) { super(typeof u === 'string' && u.startsWith('/') ? API + u : u, o); } };
+}
+const diffCss = document.createElement('link'); diffCss.rel = 'stylesheet'; diffCss.href = API + '/diff.css'; document.head.appendChild(diffCss);
+</script>
+<style>
+  #fixview { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 20 }
+  #fixview.open { display: block }
+  #fixbox { position: absolute; inset: 3vh 4vw; background: #fff; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden }
+  #fixhead { padding: .9rem 1.3rem; border-bottom: 1px solid #e1e1e1; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap }
+  #fixhead h3 { margin: 0; flex: 1 }
+  #fixbody { padding: 1rem 1.3rem; overflow: auto; flex: 1 }
+  .notice { background: #fff8e1; border: 1px solid #f0d58a; border-radius: 6px; padding: .5rem .8rem; margin: .5rem 0 }
+  .warnbox { background: #fff1f0; border: 1px solid #f3b5b0; border-radius: 6px; padding: .5rem .8rem; margin: .5rem 0 }
+  .btnlink { display: inline-block; padding: .4rem .9rem; border-radius: 6px; background: #0f6cbd; color: #fff; text-decoration: none; font-size: .9rem }
+  .btnlink.sec { background: #fff; color: #0f6cbd; border: 1px solid #0f6cbd }
+</style>
+</head>
+<body>
+<header><h1>Semantic Model Checklist Agent</h1></header>
+<main>
+<div id="login" hidden>
+  <p class="sub">Sign in with your Microsoft account to read semantic models you have access to. A GitHub Copilot agent then runs the Data Agent readiness checklist.</p>
+  <form id="lf">
+    <input id="tenant" placeholder="Tenant ID, domain or your email (optional)" />
+    <button id="lb">Sign in with Microsoft</button>
+  </form>
+  <div id="code"></div>
+</div>
+<div id="app" hidden>
+  <p class="sub">Signed in as <b id="who"></b> · <a href="#" id="lo">sign out</a></p>
+  <div id="copilotbanner"></div>
+  <p class="sub" style="margin:.2rem 0 .6rem">Model used by the agent: <select id="modelsel" style="padding:.3rem;border:1px solid #bbb;border-radius:6px"><option value="">Loading models...</option></select> <a href="#" id="modelrefresh">refresh</a> <span id="modelinfo"></span></p>
+  <form id="f">
+    <input id="url" placeholder="Semantic model URL: https://app.powerbi.com/groups/&lt;workspaceId&gt;/datasets/&lt;modelId&gt;" required />
+    <button id="load" type="button" class="sec">Load model</button>
+    <button id="go">Run full checklist</button>
+  </form>
+  <p class="sub" style="margin:-.4rem 0 .8rem">Optional: if a Data Agent already exists for this model, paste its URL to also check <i>Data Agent configuration</i> and <i>Testing and validation</i>.</p>
+  <input id="daurl" placeholder="Data Agent URL (optional): https://app.fabric.microsoft.com/groups/&lt;workspaceId&gt;/aiskills/&lt;id&gt;" style="width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #bbb;border-radius:6px;font-size:1rem;margin-bottom:.6rem" />
+  <div id="toolbar" hidden>
+    <button id="runall">▶ Run all</button>
+    <button id="runsel" class="sec">▶ Run selected</button>
+    <a id="reportlink" href="#" target="_blank">Open full report ↗</a>
+    <a id="dl" href="#">Download .md</a>
+    <span id="chips"></span>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+</main>
+<aside id="drawer"><button id="close" class="sec mini" style="float:right">Close</button><h3 id="dtitle"></h3><div id="dbody"></div><div id="dfix"></div></aside>
+<div id="fixview"><div id="fixbox">
+  <div id="fixhead"><h3 id="fixtitle">Proposed fix</h3><span id="fixlinks"></span><button id="fixclose" class="sec">Close</button></div>
+  <div id="fixbody"></div>
+</div></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const icon = { pass: '✅', warn: '🟡', fail: '❌', manual: '🖐️', not_applicable: '➖', pending: '⏳' };
+let sections = [], runId = null, results = {}, busy = false, current = null;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const json = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+// Data Agent sections are only shown when a Data Agent URL is provided.
+const visibleSections = () => sections.filter((s) => s.scope !== 'dataagent' || $('daurl').value.trim());
+
+async function loadCopilot(force) {
+  const sel = $('modelsel');
+  let s;
+  try { s = await (await fetch(`/api/copilot/status${force ? '?refresh=1' : ''}`)).json(); } catch { s = { ready: false, problems: ['Could not reach the server.'], models: [] }; }
+  const saved = localStorage.getItem('model') || '';
+  const models = s.models || [];
+  sel.innerHTML = `<option value="">${s.defaultModel ? `Default (${esc(s.defaultModel)})` : 'Default (chosen by Copilot)'}</option>` +
+    models.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}${m.premium != null ? ` · x${m.premium}` : ''}${m.reasoning ? ' · reasoning' : ''}</option>`).join('');
+  sel.value = models.some((m) => m.id === saved) ? saved : '';
+  $('modelinfo').textContent = `(${{ byok: 'your own model provider', 'github-token': 'GitHub Copilot via service token', 'github-user': `GitHub Copilot as ${s.github?.user?.login || s.auth?.login || 'you'}`, local: 'GitHub Copilot on this machine' }[s.mode] || s.mode}${s.auth?.login && s.mode !== 'github-user' ? `, ${s.auth.login}` : ''})`;
+  const gh = s.github || {};
+  const ghBtn = gh.available ? (gh.signedIn ? ' <a href="#" id="ghout">switch back to the app\'s GitHub profile</a>' : ' <button id="ghconnect" class="mini sec">Sign in with a different GitHub account</button> <span id="ghcode"></span>') : '';
+  $('copilotbanner').innerHTML = (s.ready ? '' : `<div class="warnbox"><b>The Copilot agent is not ready</b><ul>${(s.problems || []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`) + (gh.available ? `<p class="sub">${gh.signedIn ? 'Using your GitHub account.' : s.ready ? 'Using the app\'s GitHub Copilot profile (no GitHub sign-in needed).' : 'The app\'s GitHub Copilot profile is not available.'}${ghBtn}</p>` : '');
+  if ($('ghconnect')) $('ghconnect').onclick = connectGithub;
+  if ($('ghout')) $('ghout').onclick = async (e) => { e.preventDefault(); await fetch('/api/github/logout', { method: 'POST' }); loadCopilot(true); };
+}
+async function connectGithub() {
+  $('ghconnect').disabled = true;
+  const r = await fetch('/api/github/login', { method: 'POST' });
+  const b = await r.json();
+  if (!r.ok) { $('ghcode').className = 'err'; $('ghcode').textContent = b.error; $('ghconnect').disabled = false; return; }
+  $('ghcode').className = '';
+  if (b.method === 'cli-web') {
+    $('ghcode').innerHTML = `A browser window opened to sign in to GitHub. If it did not, <a href="${esc(b.verificationUri)}" target="_blank">open the sign-in page</a>.`;
+  } else {
+    $('ghcode').innerHTML = `Open <a href="${esc(b.verificationUri)}" target="_blank">${esc(b.verificationUri)}</a> and enter <b style="font-size:1.2rem">${esc(b.userCode)}</b>`;
+    window.open(b.verificationUri, '_blank');
+  }
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/github/status')).json();
+    if (s.signedIn) { clearInterval(poll); loadCopilot(true); }
+    else if (s.error) { clearInterval(poll); $('ghcode').className = 'err'; $('ghcode').textContent = s.error; $('ghconnect').disabled = false; }
+  }, 2500);
+}
+$('modelsel').onchange = () => { localStorage.setItem('model', $('modelsel').value); runId = null; results = {}; links(); render(); $('status').textContent = 'Model changed: load the model again to use it.'; };
+$('modelrefresh').onclick = (e) => { e.preventDefault(); loadCopilot(true); };
+
+async function init() {
+  const me = await (await fetch('/api/me')).json();
+  if (!me.signedIn) { $('login').hidden = false; $('app').hidden = true; return; }
+  $('login').hidden = true; $('app').hidden = false;
+  $('who').textContent = me.user.name;
+  sections = await (await fetch('/api/checklist')).json();
+  render();
+  loadCopilot(false);
+}
+$('lf').onsubmit = async (e) => {
+  e.preventDefault();
+  $('lb').disabled = true;
+  const r = await json('/api/login', { tenantId: $('tenant').value });
+  const b = await r.json();
+  if (!r.ok) { $('code').className = 'err'; $('code').textContent = b.error; $('lb').disabled = false; return; }
+  $('code').className = '';
+  $('code').innerHTML = `Open <a href="${esc(b.verificationUri)}" target="_blank">${esc(b.verificationUri)}</a> and enter code <b style="font-size:1.4rem">${esc(b.userCode)}</b>`;
+  window.open(b.verificationUri, '_blank');
+  const poll = setInterval(async () => {
+    const me = await (await fetch('/api/me')).json();
+    if (me.signedIn) { clearInterval(poll); $('lb').disabled = false; init(); }
+    else if (me.error) { clearInterval(poll); $('code').className = 'err'; $('code').textContent = me.error; $('lb').disabled = false; }
+  }, 2000);
+};
+$('lo').onclick = async (e) => { e.preventDefault(); await fetch('/api/logout', { method: 'POST' }); init(); };
+
+function render() {
+  $('chips').innerHTML = ['pass', 'warn', 'fail', 'manual', 'not_applicable'].map((s) => `<span class="chip">${icon[s]} ${Object.values(results).filter((r) => r.status === s).length}</span>`).join('');
+  $('out').innerHTML = visibleSections().map((s) => `<h3>${esc(s.title)} <button class="mini sec" data-run-section="${s.id}" ${runId && !busy ? '' : 'disabled'}>▶ Run section</button></h3>
+<table><tr><th class="c"><input type="checkbox" data-sec="${s.id}"></th><th></th><th>Item</th><th>Finding</th><th></th></tr>` +
+    s.items.map((i) => {
+      const r = results[i.id];
+      return `<tr class="item ${i.critical ? 'crit' : ''} ${r ? '' : 'pending'}" data-item="${i.id}">
+<td class="c"><input type="checkbox" class="sel" data-id="${i.id}" data-s="${s.id}"></td><td class="s">${icon[r ? r.status : 'pending']}</td>
+<td class="t">${esc(i.text)}</td><td class="h">${esc(r?.headline)}</td>
+<td class="a"><button class="mini" data-run="${i.id}" ${runId && !busy ? '' : 'disabled'}>${r ? '↻ Re-run' : '▶ Run'}</button></td></tr>`;
+    }).join('') + '</table>').join('');
+}
+
+$('out').onclick = async (e) => {
+  const t = e.target;
+  if (t.dataset.run) return start([t.dataset.run]);
+  if (t.dataset.runSection) return start(sections.find((s) => s.id === t.dataset.runSection).items.map((i) => i.id));
+  if (t.dataset.sec) { document.querySelectorAll(`.sel[data-s="${t.dataset.sec}"]`).forEach((c) => (c.checked = t.checked)); return; }
+  if (t.classList.contains('sel') || t.tagName === 'INPUT') return;
+  const row = t.closest('tr[data-item]');
+  if (row) openDrawer(row.dataset.item);
+};
+async function openDrawer(id) {
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
+  $('dtitle').textContent = `${icon[results[id]?.status ?? 'pending']} ${item.text}`;
+  $('dbody').innerHTML = runId ? await (await fetch(`/api/runs/${runId}/items/${id}/html`)).text() : '<i>Load a model first.</i>';
+  $('dfix').innerHTML = results[id]?.fixable ? `<p><button id="fixbtn" data-fix="${id}">🔧 Preview fix</button> <span class="sub">shows the exact change to the model files; nothing is modified</span></p>` : '';
+  $('drawer').classList.add('open');
+}
+$('dfix').onclick = (e) => { if (e.target.dataset.fix) previewFix(e.target.dataset.fix); };
+$('fixclose').onclick = () => $('fixview').classList.remove('open');
+
+async function previewFix(id) {
+  const item = sections.flatMap((s) => s.items).find((i) => i.id === id);
+  $('fixtitle').textContent = `Proposed fix: ${item.text}`;
+  $('fixlinks').innerHTML = '';
+  const fail = (msg) => { $('fixbody').innerHTML = `<p class="err">${esc(msg)}</p>`; };
+  const gone = 'This run no longer exists on the server (it was probably restarted). Reload the page, load the model and re-run this item, then try again.';
+  $('fixbody').innerHTML = '<p>⏳ The agent is preparing the change on a copy of the model definition (usually 1-3 minutes)...</p><p class="sub" id="fixelapsed"></p>';
+  $('fixview').classList.add('open');
+  let r;
+  try { r = await fetch(`/api/runs/${runId}/items/${id}/fix`, { method: 'POST' }); } catch { return fail('Could not reach the server.'); }
+  if (r.status === 404) return fail(gone);
+  if (!r.ok) { let m = 'Could not start the fix.'; try { m = (await r.json()).error || m; } catch {} return fail(m); }
+  const t0 = Date.now();
+  const poll = async () => {
+    if (!$('fixview').classList.contains('open')) return;
+    let f;
+    try {
+      const res = await fetch(`/api/runs/${runId}/items/${id}/fix`);
+      if (res.status === 404) return fail(gone);
+      f = await res.json();
+    } catch { return fail('Lost connection to the server.'); }
+    if (f.state === 'running') {
+      $('fixelapsed').textContent = `Working for ${Math.round((Date.now() - t0) / 1000)} s...`;
+      if (Date.now() - t0 > 10 * 60 * 1000) return fail('Timed out after 10 minutes. Close and try again.');
+      return setTimeout(poll, 2500);
+    }
+    if (f.state === 'error') return fail(f.error);
+    if (f.noFix) { $('fixbody').innerHTML = `<div class="notice"><b>No automatic change available.</b> ${esc(f.noFix)}<br>Follow the "What to do" steps manually.</div>`; return; }
+    $('fixlinks').innerHTML = `<a class="btnlink" href="${API}/api/runs/${runId}/items/${id}/fix.patch">⬇ Download .patch</a> <a class="btnlink sec" href="${API}/api/runs/${runId}/items/${id}/fix.zip">⬇ Patched files (.zip)</a>`;
+    $('fixbody').innerHTML = `<p><b>${esc(f.summary)}</b></p>
+<p class="sub">${f.stats.files} file(s) changed · <span style="color:#1a7f37">+${f.stats.added}</span> <span style="color:#cf222e">-${f.stats.removed}</span></p>
+<div class="notice">Preview only. Nothing has been changed in your semantic model. Review the colored lines (green = added, red = removed), then apply the change yourself (e.g. paste into the model's TMDL view or deploy the patched files).</div>
+${f.warnings.length ? `<div class="warnbox"><b>Check before applying</b><ul>${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+${f.html}`;
+  };
+  poll();
+}
+$('close').onclick = () => $('drawer').classList.remove('open');
+
+function links() {
+  $('toolbar').hidden = !runId;
+  if (runId) { $('reportlink').href = `${API}/runs/${runId}/report`; $('dl').href = `${API}/api/runs/${runId}/report`; $('dl').download = 'semantic-model-report.md'; }
+}
+function setBusy(b) { busy = b; $('runall').disabled = $('runsel').disabled = $('go').disabled = $('load').disabled = b; render(); }
+
+async function ensureRun() {
+  if (runId) return true;
+  const r = await json('/api/runs', { url: $('url').value, dataAgentUrl: $('daurl').value.trim(), model: $('modelsel').value, prepare: true });
+  const b = await r.json();
+  if (!r.ok) { $('status').className = 'err'; $('status').textContent = b.error; return false; }
+  runId = b.id; results = {}; links(); render();
+  return true;
+}
+const reset = () => { runId = null; results = {}; links(); render(); };
+$('url').oninput = reset;
+$('daurl').oninput = reset;
+$('load').onclick = async () => { $('status').className = ''; if (await ensureRun()) $('status').textContent = 'Model loaded. Run all items, a section, or a single item with ▶.'; };
+$('f').onsubmit = async (e) => { e.preventDefault(); if (await ensureRun()) start(visibleSections().flatMap((s) => s.items.map((i) => i.id))); };
+$('runall').onclick = () => start(visibleSections().flatMap((s) => s.items.map((i) => i.id)));
+$('runsel').onclick = () => {
+  const ids = [...document.querySelectorAll('.sel:checked')].map((c) => c.dataset.id);
+  if (!ids.length) { $('status').textContent = 'Select at least one item.'; return; }
+  start(ids);
+};
+
+async function start(itemIds) {
+  if (busy || !(await ensureRun())) return;
+  $('status').className = ''; setBusy(true);
+  const r = await json(`/api/runs/${runId}/items`, { itemIds });
+  if (r.status === 404) { runId = null; results = {}; links(); render(); $('status').className = 'err'; $('status').textContent = 'The server was restarted and this run is gone. Click "Load model" again, then re-run.'; setBusy(false); return; }
+  if (!r.ok) { let m = 'Could not start the run.'; try { m = (await r.json()).error || m; } catch {} $('status').className = 'err'; $('status').textContent = m; setBusy(false); return; }
+  const es = new EventSource(`/api/runs/${runId}/events`);
+  es.onmessage = async (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'status') $('status').textContent = ev.message;
+    if (ev.type === 'model') $('status').textContent = `Model: ${ev.name}`;
+    if (ev.type === 'section') $('status').textContent = `Assessing: ${ev.title}`;
+    if (ev.type === 'tool') $('status').textContent += ` · ${ev.name}`;
+    if (ev.type === 'item') { results[ev.itemId] = ev; render(); }
+    if (ev.type === 'error') { $('status').className = 'err'; $('status').textContent = ev.message; es.close(); setBusy(false); }
+    if (ev.type === 'done') { es.close(); $('status').textContent = 'Done. Click a row for details or open the full report.'; setBusy(false); }
+  };
+}
+init();
+</script>
+</body>
+</html>
